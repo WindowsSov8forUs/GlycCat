@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/WindowsSov8forUs/glyccat/log"
 	"github.com/satori-protocol-go/satori-model-go/pkg/message"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/util"
@@ -52,6 +53,10 @@ func StartMessageDB(messageLimit int) error {
 
 // SaveMessage 保存消息
 func SaveMessage(data *message.Message, channelId, channelType string) error {
+	if messageDBInstance == nil {
+		return nil
+	}
+
 	messageDBInstance.mu.Lock()
 	defer messageDBInstance.mu.Unlock()
 
@@ -73,6 +78,10 @@ func SaveMessage(data *message.Message, channelId, channelType string) error {
 
 // GetMessage 获取消息
 func GetMessage(channelId, channelType, messageId string) (*message.Message, error) {
+	if messageDBInstance == nil {
+		log.Warn("未启用消息数据库，无法获取指定消息。")
+		return nil, nil
+	}
 	messageDBInstance.mu.Lock()
 	defer messageDBInstance.mu.Unlock()
 
@@ -95,6 +104,11 @@ func GetMessage(channelId, channelType, messageId string) (*message.Message, err
 
 // GetMessageList 获取消息列表
 func GetMessageList(channelId, channelType, next string, direction QueryDirection, limit int) ([]*message.Message, []*message.Message, error) {
+	if messageDBInstance == nil {
+		log.Warn("未启用消息数据库，无法获取消息列表。")
+		return []*message.Message{}, []*message.Message{}, nil
+	}
+
 	messageDBInstance.mu.Lock()
 	defer messageDBInstance.mu.Unlock()
 
