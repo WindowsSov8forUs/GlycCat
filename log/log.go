@@ -6,9 +6,9 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/sirupsen/logrus"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 // Logger 日志等级
@@ -28,8 +28,9 @@ const (
 // Logger 日志结构体
 type Logger struct {
 	*logrus.Logger
-	Mutex sync.Mutex
-	Level LogLevel
+	Mutex      sync.Mutex
+	Level      LogLevel
+	lumberjack *lumberjack.Logger
 }
 
 // 内部 Logger 对象
@@ -91,11 +92,12 @@ func init() {
 		TimestampFormat: "2006-01-02 15:04:05",
 		ForceColors:     true,
 	})
+	// 获取 lumberjack.Logger 对象
+	logger.lumberjack = getLumberjackLogger()
 
 	// 配置多输出（控制台和文件）
-	logFile := getLogFile()
-	if logFile != nil {
-		logger.SetOutput(io.MultiWriter(os.Stdout, logFile))
+	if logger.lumberjack != nil {
+		logger.SetOutput(io.MultiWriter(os.Stdout, logger.lumberjack))
 	} else {
 		logger.SetOutput(os.Stdout)
 	}
@@ -104,23 +106,21 @@ func init() {
 	logger.SetLevel(logrus.InfoLevel)
 }
 
-// getLogFile 获取当前 .log 文件对象
-func getLogFile() *os.File {
+// getLumberjackLogger 获取一个可用的 lumberjack.Logger 对象
+func getLumberjackLogger() *lumberjack.Logger {
 	// 创建 log 文件夹
 	err := os.MkdirAll("log", os.ModePerm)
 	if err != nil {
 		return nil
 	}
-	// 获取当前时间
-	timestamp := time.Now().Format("2006-01-02")
-	// 获取 .log 文件名
-	logFileName := fmt.Sprintf("%s.log", timestamp)
-	// 获取 .log 文件对象
-	file, err := os.OpenFile("log/"+logFileName, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0666)
-	if err != nil {
-		return nil
+
+	return &lumberjack.Logger{
+		Filename:   "log/glyc-cat.log",
+		MaxSize:    256,
+		MaxAge:     7,
+		MaxBackups: 10,
+		LocalTime:  true,
 	}
-	return file
 }
 
 // convertLogLevel 转换自定义日志级别到 Logrus 级别
