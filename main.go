@@ -170,11 +170,12 @@ func newRuntime(conf *config.Config) (*runtimeBundle, error) {
 		Version:       satoriVersion,
 		Token:         conf.Satori.Token,
 		ReplaceRouter: apiRouter,
+		Logger:        logger{},
 	})
 	if err != nil {
 		return nil, err
 	}
-	srv.RegisterLogger(logger{})
+
 	if applyErr := srv.Apply(innerAdapter); applyErr != nil {
 		return nil, applyErr
 	}
