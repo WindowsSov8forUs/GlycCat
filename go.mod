@@ -4,7 +4,7 @@ go 1.25.4
 
 require (
 	github.com/go-chi/chi/v5 v5.2.3
-	github.com/satori-protocol-go/satori-go v1.2.0
+	github.com/satori-protocol-go/satori-go v1.2.1
 	github.com/sirupsen/logrus v1.9.3
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 )

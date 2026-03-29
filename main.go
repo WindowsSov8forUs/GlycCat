@@ -26,19 +26,9 @@ import (
 
 type Logger struct{}
 
-func (Logger) Log(_ context.Context, level server.LogLevel, message string, fields ...server.Field) {
-	text := strings.TrimSpace(message)
-	if text == "" {
-		text = "satori server event"
-	}
-	args := make([]interface{}, 0, 1+len(fields))
-	args = append(args, text)
-	for _, field := range fields {
-		key := strings.TrimSpace(field.Key)
-		if key == "" {
-			continue
-		}
-		args = append(args, fmt.Sprintf("%s=%v", key, field.Value))
+func (Logger) Log(_ context.Context, level server.LogLevel, v ...any) {
+	if len(v) == 0 {
+		v = []any{"satori server event"}
 	}
 	lvl := log.INFO
 	switch level {
@@ -49,7 +39,7 @@ func (Logger) Log(_ context.Context, level server.LogLevel, message string, fiel
 	case server.LogLevelError:
 		lvl = log.ERROR
 	}
-	log.GetLogger().Println(lvl, args...)
+	log.GetLogger().Println(lvl, v...)
 }
 
 func main() {
