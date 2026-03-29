@@ -24,6 +24,34 @@ import (
 	"github.com/satori-protocol-go/satori-go/pkg/satori/server"
 )
 
+type Logger struct{}
+
+func (Logger) Log(_ context.Context, level server.LogLevel, message string, fields ...server.Field) {
+	text := strings.TrimSpace(message)
+	if text == "" {
+		text = "satori server event"
+	}
+	args := make([]interface{}, 0, 1+len(fields))
+	args = append(args, text)
+	for _, field := range fields {
+		key := strings.TrimSpace(field.Key)
+		if key == "" {
+			continue
+		}
+		args = append(args, fmt.Sprintf("%s=%v", key, field.Value))
+	}
+	lvl := log.INFO
+	switch level {
+	case server.LogLevelDebug:
+		lvl = log.DEBUG
+	case server.LogLevelWarn:
+		lvl = log.WARN
+	case server.LogLevelError:
+		lvl = log.ERROR
+	}
+	log.GetLogger().Println(lvl, args...)
+}
+
 func main() {
 	fastStart := flag.Bool("faststart", false, "fast startup")
 	debug := flag.Bool("debug", false, "debug mode")
@@ -128,9 +156,9 @@ type runtimeBundle struct {
 	qqWebhookServer *http.Server
 }
 
-type logger struct{}
-
 func newRuntime(conf *config.Config) (*runtimeBundle, error) {
+	var logger = Logger{}
+
 	useWebSocket := conf.Account.WebSocket.Enable && !conf.Account.WebHook.Enable
 	if !useWebSocket && !conf.Account.WebHook.Enable {
 		return nil, fmt.Errorf("both webhook and websocket are disabled")
@@ -146,6 +174,7 @@ func newRuntime(conf *config.Config) (*runtimeBundle, error) {
 		UseWebSocket:  useWebSocket,
 		WSIntentNames: conf.Account.WebSocket.Intents,
 		WSShardCount:  conf.Account.WebSocket.Shards,
+		Logger:        logger,
 	}
 
 	innerAdapter, err := qq.New(adapterCfg)
@@ -170,7 +199,7 @@ func newRuntime(conf *config.Config) (*runtimeBundle, error) {
 		Version:       satoriVersion,
 		Token:         conf.Satori.Token,
 		ReplaceRouter: apiRouter,
-		Logger:        logger{},
+		Logger:        logger,
 	})
 	if err != nil {
 		return nil, err
@@ -262,30 +291,4 @@ func responseHeaderMiddleware(satoriVersion string, serverHeader string) func(ht
 			next.ServeHTTP(w, request)
 		})
 	}
-}
-
-func (logger) Log(_ context.Context, level server.LogLevel, message string, fields ...server.Field) {
-	text := strings.TrimSpace(message)
-	if text == "" {
-		text = "satori server event"
-	}
-	args := make([]interface{}, 0, 1+len(fields))
-	args = append(args, text)
-	for _, field := range fields {
-		key := strings.TrimSpace(field.Key)
-		if key == "" {
-			continue
-		}
-		args = append(args, fmt.Sprintf("%s=%v", key, field.Value))
-	}
-	lvl := log.INFO
-	switch level {
-	case server.LogLevelDebug:
-		lvl = log.DEBUG
-	case server.LogLevelWarn:
-		lvl = log.WARN
-	case server.LogLevelError:
-		lvl = log.ERROR
-	}
-	log.GetLogger().Println(lvl, args...)
 }
