@@ -33,6 +33,11 @@ func (a *Adapter) prepareMessageMedia(request *server.Request[server.MessageCrea
 	}
 	ctx, cancel := context.WithTimeout(requestContext(request.Origin), 60*time.Second)
 	defer cancel()
+	stop := context.AfterFunc(a.closed, cancel)
+	defer stop()
+	if err := a.closed.Err(); err != nil {
+		return "", err
+	}
 	select {
 	case mediaPreparing <- struct{}{}:
 		defer func() { <-mediaPreparing }()
