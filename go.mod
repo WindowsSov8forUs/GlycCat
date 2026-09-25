@@ -6,6 +6,7 @@ require (
 	github.com/go-chi/chi/v5 v5.2.3
 	github.com/satori-protocol-go/satori-go v1.3.2-0.20260924155532-f705ea27882c
 	github.com/sirupsen/logrus v1.9.3
+	golang.org/x/image v0.16.0
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 )
 
@@ -18,7 +19,6 @@ require (
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mgutz/ansi v0.0.0-20170206155736-9520e82c474b // indirect
 	github.com/stretchr/testify v1.9.0 // indirect
-	golang.org/x/image v0.16.0 // indirect
 	golang.org/x/oauth2 v0.23.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/term v0.34.0 // indirect
@@ -32,7 +32,6 @@ require (
 
 require (
 	github.com/AlecAivazis/survey/v2 v2.3.7
-	github.com/disintegration/imaging v1.6.2
 	github.com/fatih/color v1.17.0
 	github.com/go-resty/resty/v2 v2.17.2 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
