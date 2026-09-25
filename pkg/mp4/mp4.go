@@ -2,19 +2,23 @@ package mp4
 
 import (
 	"bytes"
-	"crypto/md5"
+	"context"
 	"encoding/binary"
-	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
-	"path"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 )
 
-const cachePath = "data/cache"
+const maxVideoBytes = 32 * 1024 * 1024
+
+var videoProcessing = make(chan struct{}, 2)
 
 const limit = 4 * 1024
 
@@ -64,67 +68,87 @@ func CheckVideo(readSeeker io.ReadSeeker) (string, bool) {
 }
 
 // scanType 扫描格式
-func scanType(readerSeeker io.ReadSeeker) string {
-	_, _ = readerSeeker.Seek(0, io.SeekStart)
-	defer readerSeeker.Seek(0, io.SeekStart)
-	in := make([]byte, limit)
-	_, _ = readerSeeker.Read(in)
-	return http.DetectContentType(in)
+func scanType(reader io.ReadSeeker) string {
+	if reader == nil {
+		return ""
+	}
+	if _, err := reader.Seek(0, io.SeekStart); err != nil {
+		return ""
+	}
+	defer reader.Seek(0, io.SeekStart)
+	data := make([]byte, limit)
+	n, err := io.ReadFull(reader, data)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		return ""
+	}
+	return http.DetectContentType(data[:n])
 }
 
 // EncoderMP4 编码为 MP4
 func EncoderMP4(data []byte) ([]byte, error) {
-	hash := md5.New()
-	_, err := hash.Write(data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to compute md5: %v", err)
-	}
-	name := hex.EncodeToString(hash.Sum(nil))
-	return encode(data, name)
+	return EncoderMP4Context(context.Background(), data)
 }
 
-// encode 编码为 MP4
-func encode(data []byte, name string) (mp4Video []byte, err error) {
-	// 0. 创建缓存目录
-	err = createDirectoryIfNotExist(cachePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create video cache directory: %v", err)
+// EncoderMP4Context 使用独立目录和请求上下文转码，避免冲突及无限等待
+func EncoderMP4Context(ctx context.Context, data []byte) (result []byte, resultErr error) {
+	if len(data) == 0 || len(data) > maxVideoBytes {
+		return nil, fmt.Errorf("视频内容为空或超过 32 MiB 上限")
 	}
-
-	// 1. 创建临时文件
-	rawPath := path.Join(cachePath, name)
-	err = os.WriteFile(rawPath, data, os.ModePerm)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create temporary file: %v", err)
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	defer os.Remove(rawPath)
-
-	// 2. 转换 MP4
-	mp4Path := path.Join(cachePath, name+".mp4")
-	cmd := exec.Command("ffmpeg", "-i", rawPath, "-vcodec", "libx264", "-acodec", "aac", mp4Path)
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	select {
+	case videoProcessing <- struct{}{}:
+		defer func() { <-videoProcessing }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	program, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		return nil, fmt.Errorf("未找到可信的 ffmpeg，请将安装目录加入 PATH: %w", err)
+	}
+	dir, err := os.MkdirTemp("", "glyccat-video-*")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { resultErr = errors.Join(resultErr, os.RemoveAll(dir)) }()
+	input := filepath.Join(dir, "input")
+	output := filepath.Join(dir, "output.mp4")
+	if err := os.WriteFile(input, data, 0600); err != nil {
+		return nil, err
+	}
+	// 不允许网络协议、HLS 或 concat 等外部资源引用型输入。
+	cmd := exec.CommandContext(ctx, program,
+		"-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-max_alloc", "67108864",
+		"-protocol_whitelist", "file,pipe",
+		"-format_whitelist", "avi,asf,flv,matroska,webm,mov,mp4,m4a,3gp,3g2,mj2,mpeg,mpegts,ogg",
+		"-threads", "2", "-i", input, "-map", "0:v:0", "-map", "0:a:0?",
+		"-threads", "2", "-filter_threads", "1", "-vcodec", "libx264", "-pix_fmt", "yuv420p",
+		"-acodec", "aac", "-movflags", "+faststart", "-fs", strconv.Itoa(maxVideoBytes), output)
+	cmd.Dir = dir
+	cmd.WaitDelay = 2 * time.Second
 	if err := cmd.Run(); err != nil {
-
-		return nil, fmt.Errorf("failed to convert to mp4: %v", err)
-	}
-	mp4Video, err = os.ReadFile(mp4Path)
-	if err != nil {
-
-		return nil, fmt.Errorf("failed to read mp4 file: %v", err)
-	}
-	defer os.Remove(mp4Path)
-
-	return mp4Video, nil
-}
-
-// createDirectoryIfNotExist 检查目录是否存在，不存在则创建
-func createDirectoryIfNotExist(path string) error {
-	_, err := os.Stat(path)
-	if os.IsNotExist(err) {
-		// 创建目录
-		err := os.MkdirAll(path, os.ModePerm)
-		if err != nil {
-			return err
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
 		}
+		return nil, fmt.Errorf("视频转码失败: %w", err)
 	}
-	return nil
+	file, err := os.Open(output)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	result, err = io.ReadAll(io.LimitReader(file, maxVideoBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(result) >= maxVideoBytes {
+		return nil, fmt.Errorf("视频转码达到输出上限，不发送可能被截断的内容")
+	}
+	if !IsMP4(result) {
+		return nil, fmt.Errorf("视频转码未得到有效的 MP4 文件")
+	}
+	return result, ctx.Err()
 }
