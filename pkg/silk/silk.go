@@ -6,6 +6,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"github.com/WindowsSov8forUs/glyccat/pkg/command"
 	"io"
 	"net/http"
 	"os"
@@ -122,11 +123,8 @@ func EncoderSilkContext(ctx context.Context, data []byte) (result []byte, result
 		"-f", "s16le", "-ar", strconv.Itoa(sampleRate), "-ac", "1", "-fs", strconv.Itoa(maxAudioBytes), pcm)
 	cmd.Dir = dir
 	cmd.WaitDelay = 2 * time.Second
-	if err := cmd.Run(); err != nil {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		return nil, fmt.Errorf("音频转换为 PCM 失败: %w", err)
+	if err := command.Run(ctx, cmd, "音频转换为 PCM"); err != nil {
+		return nil, err
 	}
 	info, err := os.Stat(pcm)
 	if err != nil {
@@ -142,11 +140,8 @@ func EncoderSilkContext(ctx context.Context, data []byte) (result []byte, result
 	cmd = exec.CommandContext(ctx, codec, args...)
 	cmd.Dir = dir
 	cmd.WaitDelay = 2 * time.Second
-	if err := cmd.Run(); err != nil {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		return nil, fmt.Errorf("SILK 编码失败: %w", err)
+	if err := command.Run(ctx, cmd, "SILK 编码"); err != nil {
+		return nil, err
 	}
 	file, err := os.Open(output)
 	if err != nil {

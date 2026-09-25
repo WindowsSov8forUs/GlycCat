@@ -4,8 +4,8 @@ github.com/BurntSushi/toml v1.6.0 h1:dRaEfpa2VI55EwlIW72hMRHdWouJeRF7TPYhI+AUQjk
 github.com/BurntSushi/toml v1.6.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
 github.com/Netflix/go-expect v0.0.0-20220104043353-73e0943537d2 h1:+vx7roKuyA63nhn5WAunQHLTznkw5W8b1Xc0dNjp83s=
 github.com/Netflix/go-expect v0.0.0-20220104043353-73e0943537d2/go.mod h1:HBCaDeC1lPdgDeDbhX8XFpy1jqjK0IBG8W5K+xYqA0w=
-github.com/WindowsSov8forUs/botgo-plus v0.2.0 h1:RVYKiRKt6v5gbhQ3R8j14Ul11qcjlO1rnMDd9Igy6Ro=
-github.com/WindowsSov8forUs/botgo-plus v0.2.0/go.mod h1:qIB1wFPCq1kwflSz3s/rTTYPIxa84NTIqH4BE5WWbSs=
+github.com/WindowsSov8forUs/botgo-plus v0.2.1 h1:96upTHDlWscCaaJLEpmDWRK1/cNGk6oSXimqd6LWDCY=
+github.com/WindowsSov8forUs/botgo-plus v0.2.1/go.mod h1:qIB1wFPCq1kwflSz3s/rTTYPIxa84NTIqH4BE5WWbSs=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
 github.com/creack/pty v1.1.17 h1:QeVUsEDNrLBW4tMgZHvxy18sKtr6VI492kBhUfhDJNI=
 github.com/creack/pty v1.1.17/go.mod h1:MOBLtS5ELjhRRrroQr9kyvTxUAFNvYEK993ew/Vr4O4=
@@ -55,8 +55,8 @@ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZb
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/rogpeppe/go-internal v1.9.0 h1:73kH8U+JUqXU8lRuOHeVHaa/SZPifC7BkcraZVejAe8=
 github.com/rogpeppe/go-internal v1.9.0/go.mod h1:WtVeX8xhTBvf0smdhujwtBcq4Qrzq/fJaraNFVN+nFs=
-github.com/satori-protocol-go/satori-go v1.3.2-0.20260924155532-f705ea27882c h1:NluI1YaSAzL6MLGT1gx2QYpczrRk+OLDVw4XGg5Lgb0=
-github.com/satori-protocol-go/satori-go v1.3.2-0.20260924155532-f705ea27882c/go.mod h1:3FnXhBzlQc9q9CKs0YkatIc4hAqb0MSWhXHbL5odiOc=
+github.com/satori-protocol-go/satori-go v1.4.1 h1:127JsDW4mGTejQDTurlZrKmtJUuWix+XzClu3bmbEbY=
+github.com/satori-protocol-go/satori-go v1.4.1/go.mod h1:NqsJzksX8ER+Bd0b02O55DIVEChYFFTzvOhIN9LYin4=
 github.com/sirupsen/logrus v1.9.3 h1:dueUQJ1C2q9oE3F7wvmSGAaVtTmUizReu6fjN8uqzbQ=
 github.com/sirupsen/logrus v1.9.3/go.mod h1:naHLuLoDiP4jHNo9R0sCBMtWGeIprob74mVsIT4qYEQ=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=

@@ -4,7 +4,7 @@ go 1.25.4
 
 require (
 	github.com/go-chi/chi/v5 v5.2.3
-	github.com/satori-protocol-go/satori-go v1.3.2-0.20260924155532-f705ea27882c
+	github.com/satori-protocol-go/satori-go v1.4.1
 	github.com/sirupsen/logrus v1.9.3
 	golang.org/x/image v0.16.0
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
@@ -12,7 +12,7 @@ require (
 
 require (
 	github.com/BurntSushi/toml v1.6.0 // indirect
-	github.com/WindowsSov8forUs/botgo-plus v0.2.0 // indirect
+	github.com/WindowsSov8forUs/botgo-plus v0.2.1 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
 	github.com/kr/text v0.2.0 // indirect
