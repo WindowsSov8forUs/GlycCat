@@ -157,7 +157,6 @@ func newRuntime(conf *config.Config) (*runtimeBundle, error) {
 	adapterCfg := qq.Config{
 		AppID:         conf.Account.AppID,
 		Secret:        conf.Account.AppSecret,
-		Token:         conf.Account.Token,
 		Sandbox:       conf.Account.Sandbox,
 		Path:          conf.Account.WebHook.Path,
 		Adapter:       "GlycCat",
