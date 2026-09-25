@@ -208,7 +208,12 @@ func (a *Adapter) registerCacheRoutes() {
 			return nil, server.BadRequest(err.Error())
 		}
 		request.Params.Content = content
-		// 引用规范化后交给 SDK 发送；发送分段、回复序号和部分成功响应仍由 SDK 负责。
+		content, err = a.prepareMessageMedia(request)
+		if err != nil {
+			return nil, err
+		}
+		request.Params.Content = content
+		// 全部预处理完成后才发送；发送分段、回复序号和部分成功响应仍由 SDK 负责。
 		result, err := create(forwardRequest(request))
 		if err == nil && a.store != nil && request.Platform == "qq" {
 			if cacheErr := a.cacheSent(request, result); cacheErr != nil {
