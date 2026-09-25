@@ -17,6 +17,7 @@ import (
 	"github.com/WindowsSov8forUs/glyccat/config"
 	"github.com/WindowsSov8forUs/glyccat/database"
 	"github.com/WindowsSov8forUs/glyccat/log"
+	"github.com/WindowsSov8forUs/glyccat/processor"
 	"github.com/WindowsSov8forUs/glyccat/sys"
 	"github.com/WindowsSov8forUs/glyccat/version"
 
@@ -104,16 +105,18 @@ func run() (runErr error) {
 	if conf.FileServer.Enable {
 		log.Warn("旧文件服务器已退出普通发送链路，媒体请使用 upload.create；原文件数据保持不变")
 	}
+	var messageStore *database.MessageStore
 	if conf.Database.MessageDatabase.Enable {
-		if err := database.StartMessageDB(conf.Database.MessageDatabase.Limit); err != nil {
+		messageStore, err = database.OpenMessageStore(database.DefaultMessageStorePath, conf.Database.MessageDatabase.Limit)
+		if err != nil {
 			return fmt.Errorf("启动消息数据库失败: %w", err)
 		}
-		defer func() { runErr = errors.Join(runErr, database.CloseMessageDB()) }()
+		defer func() { runErr = errors.Join(runErr, messageStore.Close()) }()
 	} else {
 		log.Warn("消息数据库未启用，群聊和私聊历史缓存不可用")
 	}
 
-	bundle, err := newRuntime(conf)
+	bundle, err := newRuntime(conf, messageStore)
 	if err != nil {
 		return fmt.Errorf("初始化运行环境失败: %w", err)
 	}
@@ -188,7 +191,7 @@ func (r *runtimeBundle) Run(ctx context.Context) error {
 	return runErr
 }
 
-func newRuntime(conf *config.Config) (bundle *runtimeBundle, err error) {
+func newRuntime(conf *config.Config, messageStore *database.MessageStore) (bundle *runtimeBundle, err error) {
 	if err := conf.NormalizeAndValidate(); err != nil {
 		return nil, err
 	}
@@ -233,12 +236,16 @@ func newRuntime(conf *config.Config) (bundle *runtimeBundle, err error) {
 	if err != nil {
 		return nil, err
 	}
-	if applyErr := srv.Apply(innerAdapter); applyErr != nil {
-		return nil, errors.Join(applyErr, srv.Close())
+	appAdapter, err := processor.NewAdapter(innerAdapter, messageStore, strconv.FormatUint(conf.Account.AppID, 10))
+	if err != nil {
+		return nil, errors.Join(err, srv.Close())
+	}
+	if applyErr := srv.Apply(appAdapter); applyErr != nil {
+		return nil, errors.Join(applyErr, appAdapter.Cleanup(context.Background()), srv.Close())
 	}
 	return &runtimeBundle{
 		satoriServer:    srv,
-		qqWebhookServer: buildQQWebhookServer(conf, innerAdapter, satoriVersion, serverHeader),
+		qqWebhookServer: buildQQWebhookServer(conf, appAdapter, satoriVersion, serverHeader),
 	}, nil
 }
 
