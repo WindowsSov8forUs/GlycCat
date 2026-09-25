@@ -2,136 +2,93 @@ package image
 
 import (
 	"bytes"
-	"crypto/md5"
-	"encoding/hex"
 	"fmt"
 	"image"
+	_ "image/gif"
 	"image/jpeg"
 	"image/png"
 	"io"
-	"net/http"
-	"os"
-	"path"
-	"strings"
 
-	"github.com/disintegration/imaging"
+	_ "golang.org/x/image/bmp"
+	_ "golang.org/x/image/tiff"
+	_ "golang.org/x/image/webp"
 )
 
 const (
-	HeaderJPG  string = "\xFF\xD8"
-	HeaderPNG  string = "\x89PNG\r\n\x1a\n"
-	HeaderGIF  string = "GIF87a"
-	HeaderGIF2 string = "GIF89a"
+	HeaderJPG  = "\xFF\xD8"
+	HeaderPNG  = "\x89PNG\r\n\x1a\n"
+	HeaderGIF  = "GIF87a"
+	HeaderGIF2 = "GIF89a"
+
+	maxImageBytes  = 32 * 1024 * 1024
+	maxImagePixels = 16 * 1024 * 1024
 )
 
-const cachePath = "data/cache"
-
-const limit = 4 * 1024
-
 // IsGIForPNGorJPG 判断是否为 GIF/PNG/JPG
-func IsGIForPNGorJPG(file []byte) bool {
-	if len(file) < 8 {
-		return false
-	}
-
-	if bytes.HasPrefix(file, []byte(HeaderGIF)) || bytes.HasPrefix(file, []byte(HeaderGIF2)) {
-		return true
-	} else if bytes.HasPrefix(file, []byte(HeaderPNG)) {
-		return true
-	} else if bytes.HasPrefix(file, []byte(HeaderJPG)) {
-		return true
-	}
-
-	return false
+func IsGIForPNGorJPG(data []byte) bool {
+	return bytes.HasPrefix(data, []byte(HeaderJPG)) || bytes.HasPrefix(data, []byte(HeaderPNG)) ||
+		bytes.HasPrefix(data, []byte(HeaderGIF)) || bytes.HasPrefix(data, []byte(HeaderGIF2))
 }
 
-// CheckImage 判断给定图像流是否为合法图像
-func CheckImage(readSeeker io.ReadSeeker) (string, bool) {
-	t := scanType(readSeeker)
-	if strings.Contains(t, "image") {
-		return t, true
+// CheckImage 在完整解码前检查图片尺寸，并恢复读取位置
+func CheckImage(reader io.ReadSeeker) (string, bool) {
+	if reader == nil {
+		return "", false
 	}
-	return t, false
+	if _, err := reader.Seek(0, io.SeekStart); err != nil {
+		return "", false
+	}
+	defer reader.Seek(0, io.SeekStart)
+	config, format, err := image.DecodeConfig(io.LimitReader(reader, maxImageBytes+1))
+	if err != nil || !validImageSize(config) {
+		return "", false
+	}
+	if format == "jpeg" {
+		return "image/jpeg", true
+	}
+	return "image/" + format, true
 }
 
-// scanType 扫描格式
-func scanType(readerSeeker io.ReadSeeker) string {
-	_, _ = readerSeeker.Seek(0, io.SeekStart)
-	defer readerSeeker.Seek(0, io.SeekStart)
-	in := make([]byte, limit)
-	_, _ = readerSeeker.Read(in)
-	return http.DetectContentType(in)
-}
-
-// EncoderImage 重编码图像
+// EncoderImage 重编码图像，不使用共享临时文件，先限制压缩大小和像素数量
 func EncoderImage(data []byte) ([]byte, error) {
-	hash := md5.New()
-	_, err := hash.Write(data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to compute md5: %v", err)
+	if len(data) == 0 || len(data) > maxImageBytes {
+		return nil, fmt.Errorf("图片内容为空或超过 32 MiB 上限")
 	}
-	name := hex.EncodeToString(hash.Sum(nil))
-	return encode(data, name)
-}
-
-// encode 编码为 MP4
-func encode(data []byte, name string) (imageData []byte, err error) {
-	// 0. 创建缓存目录
-	err = createDirectoryIfNotExist(cachePath)
+	config, format, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create image cache directory: %v", err)
+		return nil, fmt.Errorf("读取图片格式失败: %w", err)
 	}
-
-	// 1. 创建临时文件
-	rawPath := path.Join(cachePath, name)
-	err = os.WriteFile(rawPath, data, os.ModePerm)
+	if !validImageSize(config) {
+		return nil, fmt.Errorf("图片尺寸超过 8192 边长或 1600 万像素限制")
+	}
+	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create temporary file: %v", err)
+		return nil, fmt.Errorf("解码图片失败: %w", err)
 	}
-	defer os.Remove(rawPath)
-
-	// 2. 检查图像格式
-	img, err := imaging.Open(rawPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open temporary file: %v", err)
-	}
-	reader := bytes.NewReader(data)
-	_, format, err := image.DecodeConfig(reader)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode temporary file: %v", err)
-	}
-
-	// 3. 根据不同图像格式处理
-	buffer := new(bytes.Buffer)
-	switch format {
-	case "bmp":
-		// 转换为 JPG
+	buffer := new(imageBuffer)
+	if format == "bmp" {
 		err = jpeg.Encode(buffer, img, nil)
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert image to jpg: %v", err)
-		}
-		imageData = buffer.Bytes()
-	default:
-		// 转换为 PNG
+	} else {
 		err = png.Encode(buffer, img)
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert image to png: %v", err)
-		}
-		imageData = buffer.Bytes()
 	}
-
-	return imageData, nil
+	if err != nil {
+		return nil, fmt.Errorf("图片重编码失败: %w", err)
+	}
+	return buffer.Bytes(), nil
 }
 
-// createDirectoryIfNotExist 检查目录是否存在，不存在则创建
-func createDirectoryIfNotExist(path string) error {
-	_, err := os.Stat(path)
-	if os.IsNotExist(err) {
-		// 创建目录
-		err := os.MkdirAll(path, os.ModePerm)
-		if err != nil {
-			return err
-		}
+func validImageSize(config image.Config) bool {
+	return config.Width > 0 && config.Height > 0 && config.Width <= 8192 && config.Height <= 8192 &&
+		int64(config.Width)*int64(config.Height) <= maxImagePixels
+}
+
+type imageBuffer struct {
+	bytes.Buffer
+}
+
+func (b *imageBuffer) Write(data []byte) (int, error) {
+	if len(data) > maxImageBytes-b.Len() {
+		return 0, fmt.Errorf("重编码图片超过 32 MiB 上限")
 	}
-	return nil
+	return b.Buffer.Write(data)
 }
