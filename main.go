@@ -25,6 +25,24 @@ import (
 	"github.com/satori-protocol-go/satori-go/pkg/satori/server"
 )
 
+type Logger struct{}
+
+func (Logger) Log(_ context.Context, level server.LogLevel, v ...any) {
+	if len(v) == 0 {
+		v = []any{"Satori 服务事件"}
+	}
+	lvl := log.INFO
+	switch level {
+	case server.LogLevelDebug:
+		lvl = log.DEBUG
+	case server.LogLevelWarn:
+		lvl = log.WARN
+	case server.LogLevelError:
+		lvl = log.ERROR
+	}
+	log.GetLogger().Println(lvl, v...)
+}
+
 func main() {
 	fastStart := flag.Bool("faststart", false, "fast startup")
 	debug := flag.Bool("debug", false, "debug mode")
@@ -110,6 +128,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer log.Close()
+	qq.RegisterSDKLogger(Logger{})
 
 	var messageStore *database.MessageStore
 	if conf.Database.MessageDatabase.Enable {
@@ -184,6 +203,7 @@ func newRuntime(conf *config.Config, messageStore *database.MessageStore) (*runt
 		return nil, fmt.Errorf("both webhook and websocket are disabled")
 	}
 
+	logger := Logger{}
 	adapterCfg := qq.Config{
 		AppID:         conf.Account.AppID,
 		Secret:        conf.Account.AppSecret,
@@ -193,6 +213,7 @@ func newRuntime(conf *config.Config, messageStore *database.MessageStore) (*runt
 		UseWebSocket:  useWebSocket,
 		WSIntentNames: conf.Account.WebSocket.Intents,
 		WSShardCount:  conf.Account.WebSocket.Shards,
+		Logger:        logger,
 	}
 
 	innerAdapter, err := qq.New(adapterCfg)
@@ -210,6 +231,7 @@ func newRuntime(conf *config.Config, messageStore *database.MessageStore) (*runt
 		Path:    conf.Satori.Path,
 		Version: fmt.Sprintf("v%d", version),
 		Token:   conf.Satori.Token,
+		Logger:  logger,
 	})
 	if err != nil {
 		return nil, err
