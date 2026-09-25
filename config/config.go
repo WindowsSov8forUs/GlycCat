@@ -255,22 +255,6 @@ func promptAccountConfig(conf *Config) error {
 func promptAccountWebSocketConfig(conf *Config) error {
 	questions := []*survey.Question{
 		{
-			Name: "shards",
-			Prompt: &survey.Input{
-				Message: "分片数(Shards):",
-				Help:    "建议保持默认的 1 ，多了不知道会发生什么",
-				Default: "1",
-			},
-			Validate: func(val interface{}) error {
-				if str, ok := val.(string); ok {
-					if shards, err := strconv.ParseUint(str, 10, 32); err != nil || shards < 1 {
-						return fmt.Errorf("无效的分片数，请输入一个大于等于 1 的数字")
-					}
-				}
-				return nil
-			},
-		},
-		{
 			Name: "intents",
 			Prompt: &survey.MultiSelect{
 				Message: "请选择需要订阅的事件类型:",
@@ -287,7 +271,7 @@ func promptAccountWebSocketConfig(conf *Config) error {
 					"AUDIO_ACTION",            // 音频机器人事件
 					"PUBLIC_GUILD_MESSAGES",   // 公域频道消息事件
 				},
-				Default: []string{"GUILDS", "GUILD_MEMBERS", "PUBLIC_GUILD_MESSAGES"},
+				Default: []string{"GUILDS", "GUILD_MEMBERS", "PUBLIC_GUILD_MESSAGES", "GROUP_AND_C2C_EVENT", "INTERACTION", "MESSAGE_AUDIT"},
 				Help:    "使用空格键选择/取消选择，回车键确认",
 			},
 			Validate: func(val interface{}) error {
@@ -302,7 +286,6 @@ func promptAccountWebSocketConfig(conf *Config) error {
 	}
 
 	answer := struct {
-		Shards  uint32   `survey:"shards"`
 		Intents []string `survey:"intents"`
 	}{}
 
@@ -310,7 +293,9 @@ func promptAccountWebSocketConfig(conf *Config) error {
 		return err
 	}
 
-	conf.Account.WebSocket.Shards = answer.Shards
+	conf.Account.WebSocket.Shards = 0
+	conf.Account.WebSocket.ShardID = nil
+	conf.Account.WebSocket.ShardCount = 0
 	conf.Account.WebSocket.Intents = answer.Intents
 
 	return nil

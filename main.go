@@ -148,10 +148,7 @@ func newRuntime(conf *config.Config) (*runtimeBundle, error) {
 	}
 	var logger = Logger{}
 
-	useWebSocket := conf.Account.WebSocket.Enable && !conf.Account.WebHook.Enable
-	if !useWebSocket && !conf.Account.WebHook.Enable {
-		return nil, fmt.Errorf("both webhook and websocket are disabled")
-	}
+	useWebSocket := conf.Account.WebSocket.Enable
 
 	adapterCfg := qq.Config{
 		AppID:         conf.Account.AppID,
@@ -161,8 +158,12 @@ func newRuntime(conf *config.Config) (*runtimeBundle, error) {
 		Adapter:       "GlycCat",
 		UseWebSocket:  useWebSocket,
 		WSIntentNames: conf.Account.WebSocket.Intents,
-		WSShardCount:  conf.Account.WebSocket.Shards,
+		WSShardCount:  conf.Account.WebSocket.ShardCount,
 		Logger:        logger,
+	}
+
+	if conf.Account.WebSocket.ShardID != nil {
+		adapterCfg.WSShardID = *conf.Account.WebSocket.ShardID
 	}
 
 	innerAdapter, err := qq.New(adapterCfg)
