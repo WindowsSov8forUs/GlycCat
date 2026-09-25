@@ -9,7 +9,7 @@ import (
 
 func TestLoadIsReadOnlyAndUpdateKeepsBackup(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yml")
-	original := []byte("account:\n  app_id: 123\n  app_secret: secret\n  token: legacy-token\n")
+	original := []byte("account:\n  app_id: 123\n  app_secret: secret\n")
 	if err := os.WriteFile(path, original, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestLoadIsReadOnlyAndUpdateKeepsBackup(t *testing.T) {
 }
 
 func TestDecodeConfigRejectsUnknownFields(t *testing.T) {
-	_, err := decodeConfig([]byte("account:\n  app_id: 123\n  app_secret: secret\n  token: legacy-token\nunknown: true\n"))
+	_, err := decodeConfig([]byte("account:\n  app_id: 123\n  app_secret: secret\nunknown: true\n"))
 	if err == nil {
 		t.Fatal("unknown config field was accepted")
 	}
