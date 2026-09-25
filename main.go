@@ -15,7 +15,6 @@ import (
 
 	"github.com/WindowsSov8forUs/glyccat/config"
 	"github.com/WindowsSov8forUs/glyccat/database"
-	"github.com/WindowsSov8forUs/glyccat/fileserver"
 	"github.com/WindowsSov8forUs/glyccat/log"
 	"github.com/WindowsSov8forUs/glyccat/sys"
 	"github.com/WindowsSov8forUs/glyccat/version"
@@ -80,7 +79,9 @@ func main() {
 
 	log.GetLogger()
 
-	fileserver.StartFileServer(conf)
+	if conf.FileServer.Enable {
+		log.Warn("旧文件服务器已退出普通发送链路，媒体请使用 upload.create；原文件数据保持不变")
+	}
 
 	if conf.Database.MessageDatabase.Enable {
 		log.Info("starting message database")
