@@ -194,6 +194,14 @@ func (a *Adapter) registerCacheRoutes() {
 	})
 	create := a.routes["message.create"]
 	a.routes["message.create"] = server.Wrapper(func(request *server.Request[server.MessageCreateParam]) (any, error) {
+		content, err := normalizeLegacyQuotes(requestContext(request.Origin), request.Params.Content)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, err
+			}
+			return nil, server.BadRequest(err.Error())
+		}
+		request.Params.Content = content
 		result, err := create(forwardRequest(request))
 		if err == nil && a.store != nil && request.Platform == "qq" {
 			if cacheErr := a.cacheSent(request, result); cacheErr != nil {
