@@ -66,6 +66,10 @@ func main() {
 	}
 
 	log.SetLogLevel(conf.LogLevel)
+	if err := log.Start(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 
 	if *debug {
 		log.Warn("running in debug mode")

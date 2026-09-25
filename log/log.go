@@ -2,7 +2,6 @@ package log
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"strings"
 	"sync"
@@ -92,40 +91,17 @@ func init() {
 		TimestampFormat: "2006-01-02 15:04:05",
 		ForceColors:     true,
 	})
-	// 获取 lumberjack.Logger 对象
-	logger.lumberjack = getLumberjackLogger()
-
-	// 配置多输出（控制台和文件）
-	if logger.lumberjack != nil {
-		logger.SetOutput(io.MultiWriter(os.Stdout, logger.lumberjack))
-	} else {
-		logger.SetOutput(os.Stdout)
-	}
+	logger.SetOutput(os.Stdout)
 
 	logger.Level = INFO
 	logger.SetLevel(logrus.InfoLevel)
 }
 
-// getLumberjackLogger 获取一个可用的 lumberjack.Logger 对象
-func getLumberjackLogger() *lumberjack.Logger {
-	// 创建 log 文件夹
-	err := os.MkdirAll("log", os.ModePerm)
-	if err != nil {
-		return nil
-	}
-
-	return &lumberjack.Logger{
-		Filename:   "log/glyc-cat.log",
-		MaxSize:    256,
-		MaxAge:     7,
-		MaxBackups: 10,
-		LocalTime:  true,
-	}
-}
-
 // convertLogLevel 转换自定义日志级别到 Logrus 级别
 func convertLogLevel(level LogLevel) logrus.Level {
 	switch level {
+	case OFF:
+		return logrus.PanicLevel
 	case FATAL:
 		return logrus.FatalLevel
 	case ERROR:
@@ -136,7 +112,7 @@ func convertLogLevel(level LogLevel) logrus.Level {
 		return logrus.InfoLevel
 	case DEBUG:
 		return logrus.DebugLevel
-	case TRACE:
+	case TRACE, ALL:
 		return logrus.TraceLevel
 	default:
 		return logrus.InfoLevel
@@ -145,6 +121,8 @@ func convertLogLevel(level LogLevel) logrus.Level {
 
 // SetLogLevel 设置 Logger 等级
 func SetLogLevel(level LogLevel) {
+	logger.Mutex.Lock()
+	defer logger.Mutex.Unlock()
 	logger.Level = level
 	logger.SetLevel(convertLogLevel(level))
 }
@@ -156,16 +134,12 @@ func GetLogger() *Logger {
 
 // Println 打印日志
 func (l *Logger) Println(level LogLevel, v ...interface{}) {
-	// 判断日志等级
-	if level > l.Level {
-		return
-	}
-
 	l.Mutex.Lock()
 	defer l.Mutex.Unlock()
-
-	logrusLevel := convertLogLevel(level)
-	l.Logger.Log(logrusLevel, v...)
+	if l.Level == OFF || level == OFF || level > l.Level {
+		return
+	}
+	l.Logger.Log(convertLogLevel(level), v...)
 }
 
 // Fatal 致命错误
