@@ -119,6 +119,8 @@ func run() (runErr error) {
 	if err := log.Start(); err != nil {
 		return err
 	}
+	// 原生 SDK 使用进程级日志入口，仅在主程序启动时注册一次。
+	qq.RegisterSDKLogger(Logger{})
 	if conf.FileServer.Enable {
 		log.Warn("旧文件服务器已退出普通发送链路，媒体请使用 upload.create；原文件数据保持不变")
 	}
