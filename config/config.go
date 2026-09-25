@@ -443,27 +443,3 @@ func promptSatoriConfig(conf *Config) error {
 
 	return nil
 }
-
-// IsFileServerEnabled 是否启用本地文件服务器
-func IsFileServerEnabled() bool {
-	mutex.Lock()
-	defer mutex.Unlock()
-
-	if instance == nil {
-		log.Warn("配置未加载，无法判断是否启用本地文件服务器。")
-		return false
-	}
-	return instance.FileServer.Enable
-}
-
-// GetFileServerURL 获取本地文件服务器地址
-func GetFileServerURL() string {
-	mutex.Lock()
-	defer mutex.Unlock()
-
-	if instance == nil {
-		log.Warn("配置未加载，无法获取本地文件服务器地址。")
-		return ""
-	}
-	return instance.FileServer.ExternalURL
-}
