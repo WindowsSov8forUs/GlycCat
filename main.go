@@ -64,10 +64,27 @@ func run() (runErr error) {
 	configPath := flag.String("config", "config.yml", "配置文件路径")
 	initialize := flag.Bool("init", false, "交互式初始化配置，不覆盖已有文件")
 	updateConfig := flag.Bool("update-config", false, "备份并显式迁移配置")
+	legacyMessages := flag.String("migrate-messages", "", "旧消息数据库的停机备份目录，仅显式指定时迁移")
+	migrationTarget := flag.String("migration-target", database.DefaultMessageStorePath, "迁移后的新消息数据库目录")
+	migrationAppID := flag.String("migration-app-id", "", "显式确认旧消息库所属的 AppID")
+	migrationSelfID := flag.String("migration-self-id", "", "显式确认旧消息库所属的新版 self_id")
 	flag.Parse()
 
-	if *initialize && *updateConfig {
-		return fmt.Errorf("初始化和迁移配置不能同时执行")
+	modes := 0
+	for _, enabled := range []bool{*initialize, *updateConfig, *legacyMessages != ""} {
+		if enabled {
+			modes++
+		}
+	}
+	if modes > 1 {
+		return fmt.Errorf("初始化配置、迁移配置和迁移消息不能同时执行")
+	}
+	if *legacyMessages != "" {
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer cancel()
+		result, err := database.MigrateMessages(ctx, *legacyMessages, *migrationTarget, *migrationAppID, *migrationSelfID)
+		fmt.Printf("消息迁移结果：读取 %d 条，导入 %d 条，已存在 %d 条，无法迁移 %d 条\n", result.Read, result.Imported, result.Skipped, result.Failed)
+		return err
 	}
 	if *initialize {
 		if err := config.InitializeConfig(*configPath); err != nil {
