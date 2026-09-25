@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"strconv"
@@ -123,33 +124,58 @@ func DefaultConfigTemplate() string {
 
 // DumpConfig 将配置转换为 YAML 字符串
 func DumpConfig(conf *Config) string {
-	return fmt.Sprintf(
-		ConfigTemplate,
-		conf.LogLevel,
-		conf.Account.BotID,
-		conf.Account.AppID,
-		conf.Account.Token,
-		conf.Account.AppSecret,
-		conf.Account.Sandbox,
-		conf.Account.WebSocket.Enable,
-		conf.Account.WebSocket.Shards,
-		dumpIntents(conf.Account.WebSocket.Intents),
-		conf.Account.WebHook.Enable,
-		conf.Account.WebHook.Host,
-		conf.Account.WebHook.Port,
-		conf.Account.WebHook.Path,
-		conf.FileServer.Enable,
-		conf.FileServer.ExternalURL,
-		conf.FileServer.TTL,
-		conf.Database.MessageDatabase.Enable,
-		conf.Database.MessageDatabase.Limit,
-		conf.Satori.Version,
-		conf.Satori.Path,
-		conf.Satori.Token,
-		conf.Satori.Server.Host,
-		conf.Satori.Server.Port,
-		conf.Satori.WebHook.Timeout,
-	)
+	data, err := marshalConfig(conf)
+	if err != nil {
+		log.Errorf("导出配置失败: %v", err)
+		return ""
+	}
+	return string(data)
+}
+
+// marshalConfig 使用 YAML 编码器保存值，并沿用模板中的注释
+func marshalConfig(conf *Config) ([]byte, error) {
+	if conf == nil {
+		return nil, fmt.Errorf("配置不能为空")
+	}
+	var values, template yaml.Node
+	if err := values.Encode(conf); err != nil {
+		return nil, err
+	}
+	if err := yaml.Unmarshal([]byte(ConfigTemplate), &template); err != nil {
+		return nil, fmt.Errorf("解析配置模板失败: %w", err)
+	}
+	if len(template.Content) > 0 {
+		copyConfigComments(&values, template.Content[0])
+	}
+	var buffer bytes.Buffer
+	encoder := yaml.NewEncoder(&buffer)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(&values); err != nil {
+		return nil, err
+	}
+	if err := encoder.Close(); err != nil {
+		return nil, err
+	}
+	return buffer.Bytes(), nil
+}
+
+// copyConfigComments 只复制注释，不改变原始配置值
+func copyConfigComments(target, source *yaml.Node) {
+	target.HeadComment = source.HeadComment
+	target.LineComment = source.LineComment
+	target.FootComment = source.FootComment
+	if target.Kind != yaml.MappingNode || source.Kind != yaml.MappingNode {
+		return
+	}
+	for i := 0; i+1 < len(target.Content); i += 2 {
+		for j := 0; j+1 < len(source.Content); j += 2 {
+			if target.Content[i].Value == source.Content[j].Value {
+				copyConfigComments(target.Content[i], source.Content[j])
+				copyConfigComments(target.Content[i+1], source.Content[j+1])
+				break
+			}
+		}
+	}
 }
 
 // SetConfigByInput 通过用户输入设置配置
@@ -777,22 +803,12 @@ func fixConfigFile(configPath string, originalData []byte) error {
 
 // mergeConfigWithTemplate 将现有配置与模板合并
 func mergeConfigWithTemplate(originalData []byte) ([]byte, error) {
-	// 解析原配置到结构体
-	var originalConfig Config
-	if err := yaml.Unmarshal(originalData, &originalConfig); err != nil {
+	// 只有实际出现的字段才会覆盖默认值，false、0 和空字符串不是字段缺失。
+	conf := DefaultConfig()
+	if err := yaml.Unmarshal(originalData, conf); err != nil {
 		return nil, fmt.Errorf("解析原配置失败: %w", err)
 	}
-
-	// 获取默认配置
-	defaultConfig := DefaultConfig()
-
-	// 合并配置：用原配置的非零值覆盖默认配置
-	mergedConfig := mergeConfigStructs(defaultConfig, &originalConfig)
-
-	// 使用 DumpConfig 方法导出配置
-	mergedData := DumpConfig(mergedConfig)
-
-	return []byte(mergedData), nil
+	return marshalConfig(conf)
 }
 
 // mergeConfigStructs 合并配置结构体
