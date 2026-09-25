@@ -251,6 +251,9 @@ func newRuntime(conf *config.Config, messageStore *database.MessageStore) (bundl
 		Token:         conf.Satori.Token,
 		ReplaceRouter: apiRouter,
 		Logger:        logger,
+		// 此客户端只用于 Satori 反向推送，不改变 QQ 请求或资源代理的超时。
+		// 旧配置的 0 不追加应用上限，仍遵守 SDK 的单订阅超时，不表示无限等待。
+		HTTPClient: &http.Client{Timeout: time.Duration(conf.Satori.WebHook.Timeout) * time.Second},
 	})
 	if err != nil {
 		return nil, err

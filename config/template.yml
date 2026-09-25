@@ -45,4 +45,4 @@ satori: # Satori 配置
     port: 5140 # 服务器端口
 
   webhook:
-    timeout: 10 # 兼容字段，当前未接入；实际推送超时以 SDK/订阅设置为准，见 README
+    timeout: 10 # 反向推送总耗时上限，单位秒；0 不追加应用上限，仍受 SDK 单订阅超时限制

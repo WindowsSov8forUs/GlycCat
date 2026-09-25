@@ -74,6 +74,8 @@ Content-Type: application/json
 
 `/v1/meta` 用于获取登录资料和代理信息，不要求平台身份头，但仍遵守 Satori Token 校验。下游 WebHook 通过 `/v1/meta/webhook.create` 和 `/v1/meta/webhook.delete` 管理；旧 `/admin/*` 路径不作为兼容接口提供。
 
+`satori.webhook.timeout` 是所有反向推送的应用侧总耗时上限，单位为秒，默认 10 秒，覆盖连接、重定向和响应体读取；单个订阅配置的更短超时仍有效。设置为 0 时不追加应用上限，但 SDK 未指定订阅超时时仍默认 300 秒，不等于旧实现的无限等待。此配置不影响 QQ API 请求、资源代理或 WebSocket。
+
 账号标识以 SDK 返回的 `user.id` 为准，`qq` 与 `qqguild` 通过 platform 区分。不要再将配置 BotID 或 AppID 当作 self_id，也不要把临时 `login.sn` 当成持久账号键。QQ 私聊频道使用 `private:<UserOpenID>`，群聊频道使用实际群 OpenID。
 
 ### 被动回复与引用
@@ -197,7 +199,6 @@ GlycCat 当前没有功能测试，运行 `go test ./...` 只提供包编译检�
 以下事项仍未完成，不应作为已验收功能：
 
 - 自动发送前的媒体预处理与旧嵌套引用兼容尚未接回；本轮只修复辅助函数，未运行真实转码器。
-- `satori.webhook.timeout` 目前仍是保留字段，没有传入服务端。实际推送由 SDK 处理：未指定订阅超时时默认 300 秒，不能把字段中的 10 秒当作生效，也不能把 0 当作无限等待。
 - 固定 SDK 的 WebHook 注册失败状态回滚、频道私聊创建返回的 ID/类型一致性，以及 SDK 自建 HTTP 监听的读头/空闲保护仍待独立修复；公网部署需在代理层提供相应限制。
 - 新消息库、分页和迁移尚未经过新增功能测试；真实 QQ 权限、频控、媒体效果及跨平台运行也没有以构建结果替代验证。
 
