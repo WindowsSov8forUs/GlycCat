@@ -51,6 +51,19 @@ func StartMessageDB(messageLimit int) error {
 	return nil
 }
 
+// CloseMessageDB 在消息处理结束后关闭数据库
+func CloseMessageDB() error {
+	if messageDBInstance == nil {
+		return nil
+	}
+	db := messageDBInstance
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	err := db.DB.Close()
+	messageDBInstance = nil
+	return err
+}
+
 // SaveMessage 保存消息
 func SaveMessage(data *message.Message, channelId, channelType string) error {
 	if messageDBInstance == nil {

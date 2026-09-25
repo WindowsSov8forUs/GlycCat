@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net"
@@ -19,7 +20,6 @@ import (
 	"github.com/WindowsSov8forUs/glyccat/sys"
 	"github.com/WindowsSov8forUs/glyccat/version"
 
-	"github.com/gin-gonic/gin"
 	"github.com/go-chi/chi/v5"
 	"github.com/satori-protocol-go/satori-go/pkg/satori/adapter/qq"
 	"github.com/satori-protocol-go/satori-go/pkg/satori/server"
@@ -29,7 +29,7 @@ type Logger struct{}
 
 func (Logger) Log(_ context.Context, level server.LogLevel, v ...any) {
 	if len(v) == 0 {
-		v = []any{"satori server event"}
+		v = []any{"Satori 服务事件"}
 	}
 	lvl := log.INFO
 	switch level {
@@ -44,102 +44,83 @@ func (Logger) Log(_ context.Context, level server.LogLevel, v ...any) {
 }
 
 func main() {
-	fastStart := flag.Bool("faststart", false, "fast startup")
-	debug := flag.Bool("debug", false, "debug mode")
+	err := run()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "程序运行失败: %v\n", err)
+	}
+	closeErr := log.Close()
+	if closeErr != nil {
+		fmt.Fprintf(os.Stderr, "关闭日志失败: %v\n", closeErr)
+	}
+	if err != nil || closeErr != nil {
+		os.Exit(1)
+	}
+}
+
+func run() (runErr error) {
+	fastStart := flag.Bool("faststart", false, "跳过启动环境提示")
+	debug := flag.Bool("debug", false, "启用调试日志")
+	configPath := flag.String("config", "config.yml", "配置文件路径")
+	initialize := flag.Bool("init", false, "交互式初始化配置，不覆盖已有文件")
+	updateConfig := flag.Bool("update-config", false, "备份并显式迁移配置")
 	flag.Parse()
 
+	if *initialize && *updateConfig {
+		return fmt.Errorf("初始化和迁移配置不能同时执行")
+	}
+	if *initialize {
+		if err := config.InitializeConfig(*configPath); err != nil {
+			return err
+		}
+		fmt.Printf("配置已保存至 %s\n", *configPath)
+		return nil
+	}
+	if *updateConfig {
+		backup, err := config.UpdateConfig(*configPath)
+		if backup != "" {
+			fmt.Printf("原配置备份: %s\n", backup)
+		}
+		return err
+	}
 	if !*fastStart {
 		sys.InitBase()
 	}
 
 	fmt.Println(version.Logo())
-	versionString := log.StringCenter(fmt.Sprintf("GlycCat %s", version.Version), 58)
-	log.PrintlnCyan(versionString)
+	log.PrintlnCyan(log.StringCenter(fmt.Sprintf("GlycCat %s", version.Version), 58))
 	fmt.Print("\n==========================================================\n\n")
 
-	conf, err := config.LoadConfig("config.yml")
+	conf, err := config.LoadConfig(*configPath)
 	if err != nil {
-		fmt.Printf("%s load config failed: %v\n", log.FailMark, log.Red(fmt.Sprint(err)))
-		os.Exit(0)
-		return
+		return err
 	}
-
 	log.SetLogLevel(conf.LogLevel)
-	if err := log.Start(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-
 	if *debug {
-		log.Warn("running in debug mode")
-		gin.SetMode(gin.DebugMode)
-	} else {
-		gin.SetMode(gin.ReleaseMode)
+		log.SetLogLevel(log.DEBUG)
 	}
-
-	log.GetLogger()
-
+	if err := log.Start(); err != nil {
+		return err
+	}
 	if conf.FileServer.Enable {
 		log.Warn("旧文件服务器已退出普通发送链路，媒体请使用 upload.create；原文件数据保持不变")
 	}
-
 	if conf.Database.MessageDatabase.Enable {
-		log.Info("starting message database")
-		err := database.StartMessageDB(conf.Database.MessageDatabase.Limit)
-		if err != nil {
-			log.Errorf("start message database failed: %v", err)
+		if err := database.StartMessageDB(conf.Database.MessageDatabase.Limit); err != nil {
+			return fmt.Errorf("启动消息数据库失败: %w", err)
 		}
+		defer func() { runErr = errors.Join(runErr, database.CloseMessageDB()) }()
 	} else {
-		log.Warn("message database is disabled")
+		log.Warn("消息数据库未启用，群聊和私聊历史缓存不可用")
 	}
 
-	runtime, err := newRuntime(conf)
+	bundle, err := newRuntime(conf)
 	if err != nil {
-		log.Fatalf("initialize runtime failed: %v", err)
+		return fmt.Errorf("初始化运行环境失败: %w", err)
 	}
-
-	ctx, cancel := context.WithCancel(context.Background())
+	defer func() { runErr = errors.Join(runErr, bundle.satoriServer.Close()) }()
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-
-	runErrCh := make(chan error, 2)
-	go func() {
-		runErrCh <- runtime.satoriServer.Run(ctx)
-	}()
-
-	if runtime.qqWebhookServer != nil {
-		go func() {
-			err := runtime.qqWebhookServer.ListenAndServe()
-			if err != nil && err != http.ErrServerClosed {
-				runErrCh <- err
-			}
-		}()
-	}
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
-	select {
-	case <-sigCh:
-		log.Info("received shutdown signal")
-	case runErr := <-runErrCh:
-		if runErr != nil {
-			log.Errorf("runtime failed: %v", runErr)
-		}
-	}
-
-	cancel()
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer shutdownCancel()
-
-	if runtime.qqWebhookServer != nil {
-		if err := runtime.qqWebhookServer.Shutdown(shutdownCtx); err != nil && err != http.ErrServerClosed {
-			log.Errorf("shutdown qq webhook server failed: %v", err)
-		}
-	}
-	if err := runtime.satoriServer.Shutdown(shutdownCtx); err != nil {
-		log.Errorf("shutdown satori server failed: %v", err)
-	}
+	return bundle.Run(ctx)
 }
 
 type runtimeBundle struct {
@@ -147,45 +128,99 @@ type runtimeBundle struct {
 	qqWebhookServer *http.Server
 }
 
-func newRuntime(conf *config.Config) (*runtimeBundle, error) {
+// Run 管理两路监听与退出，任何启动失败都会结束本轮运行
+func (r *runtimeBundle) Run(ctx context.Context) error {
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var callbackListener net.Listener
+	var err error
+	if r.qqWebhookServer != nil {
+		callbackListener, err = net.Listen("tcp", r.qqWebhookServer.Addr)
+		if err != nil {
+			return fmt.Errorf("监听 QQ 回调地址失败: %w", err)
+		}
+		defer callbackListener.Close()
+		log.Infof("QQ 回调监听地址: %s", callbackListener.Addr())
+	}
+
+	satoriResult := make(chan error, 1)
+	callbackResult := make(chan error, 1)
+	go func() { satoriResult <- r.satoriServer.Run(runCtx) }()
+	if callbackListener != nil {
+		go func() { callbackResult <- r.qqWebhookServer.Serve(callbackListener) }()
+	}
+	log.Infof("Satori 服务地址: %s", r.satoriServer.URLBase())
+
+	var runErr error
+	satoriFinished := false
+	select {
+	case <-ctx.Done():
+		log.Info("收到退出信号，正在关闭服务")
+	case runErr = <-satoriResult:
+		satoriFinished = true
+	case runErr = <-callbackResult:
+		if errors.Is(runErr, http.ErrServerClosed) {
+			runErr = nil
+		}
+	}
+
+	cancel()
+	if r.qqWebhookServer != nil {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownErr := r.qqWebhookServer.Shutdown(shutdownCtx)
+		shutdownCancel()
+		if shutdownErr != nil {
+			shutdownErr = errors.Join(shutdownErr, r.qqWebhookServer.Close())
+		}
+		runErr = errors.Join(runErr, shutdownErr)
+	}
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+	runErr = errors.Join(runErr, r.satoriServer.Shutdown(shutdownCtx))
+	if !satoriFinished {
+		select {
+		case result := <-satoriResult:
+			runErr = errors.Join(runErr, result)
+		case <-shutdownCtx.Done():
+			runErr = errors.Join(runErr, fmt.Errorf("等待 Satori 服务退出超时: %w", shutdownCtx.Err()))
+		}
+	}
+	return runErr
+}
+
+func newRuntime(conf *config.Config) (bundle *runtimeBundle, err error) {
 	if err := conf.NormalizeAndValidate(); err != nil {
 		return nil, err
 	}
 	var logger = Logger{}
-
-	useWebSocket := conf.Account.WebSocket.Enable
-
 	adapterCfg := qq.Config{
 		AppID:         conf.Account.AppID,
 		Secret:        conf.Account.AppSecret,
 		Sandbox:       conf.Account.Sandbox,
 		Path:          conf.Account.WebHook.Path,
 		Adapter:       "GlycCat",
-		UseWebSocket:  useWebSocket,
+		UseWebSocket:  conf.Account.WebSocket.Enable,
 		WSIntentNames: conf.Account.WebSocket.Intents,
 		WSShardCount:  conf.Account.WebSocket.ShardCount,
 		Logger:        logger,
 	}
-
 	if conf.Account.WebSocket.ShardID != nil {
 		adapterCfg.WSShardID = *conf.Account.WebSocket.ShardID
 	}
-
 	innerAdapter, err := qq.New(adapterCfg)
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, innerAdapter.Cleanup(context.Background()))
+		}
+	}()
 
-	protocolVersion := conf.Satori.Version
-	if protocolVersion == 0 {
-		protocolVersion = 1
-	}
-	satoriVersion := fmt.Sprintf("v%d", protocolVersion)
+	satoriVersion := fmt.Sprintf("v%d", conf.Satori.Version)
 	serverHeader := fmt.Sprintf("GlycCat/%s", version.Version)
-
 	apiRouter := chi.NewRouter()
 	apiRouter.Use(responseHeaderMiddleware(satoriVersion, serverHeader))
-
 	srv, err := server.NewServer(server.Config{
 		Host:          conf.Satori.Server.Host,
 		Port:          int(conf.Satori.Server.Port),
@@ -198,40 +233,27 @@ func newRuntime(conf *config.Config) (*runtimeBundle, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	if applyErr := srv.Apply(innerAdapter); applyErr != nil {
-		return nil, applyErr
+		return nil, errors.Join(applyErr, srv.Close())
 	}
-
-	webhookServer := buildQQWebhookServer(conf, innerAdapter, satoriVersion, serverHeader)
-
 	return &runtimeBundle{
 		satoriServer:    srv,
-		qqWebhookServer: webhookServer,
+		qqWebhookServer: buildQQWebhookServer(conf, innerAdapter, satoriVersion, serverHeader),
 	}, nil
 }
 
-func buildQQWebhookServer(
-	conf *config.Config,
-	registrar server.RootRouteRegistrar,
-	satoriVersion string,
-	serverHeader string,
-) *http.Server {
+func buildQQWebhookServer(conf *config.Config, registrar server.RootRouteRegistrar, satoriVersion, serverHeader string) *http.Server {
 	if !conf.Account.WebHook.Enable {
 		return nil
 	}
-
-	// 调用方已统一规范化地址；只有完全等价的端点才共享监听。
 	webhookHost := conf.Account.WebHook.Host
 	webhookPort := conf.Account.WebHook.Port
 	if isSameListenEndpoint(webhookHost, webhookPort, conf.Satori.Server.Host, conf.Satori.Server.Port) {
 		return nil
 	}
-
 	router := chi.NewRouter()
 	router.Use(responseHeaderMiddleware(satoriVersion, serverHeader))
 	registrar.RegisterRootRoutes(router)
-
 	return &http.Server{
 		Addr:              net.JoinHostPort(webhookHost, strconv.Itoa(int(webhookPort))),
 		Handler:           router,
@@ -244,7 +266,7 @@ func isSameListenEndpoint(hostA string, portA uint16, hostB string, portB uint16
 	return portA == portB && strings.EqualFold(hostA, hostB)
 }
 
-func responseHeaderMiddleware(satoriVersion string, serverHeader string) func(http.Handler) http.Handler {
+func responseHeaderMiddleware(satoriVersion, serverHeader string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 			if serverHeader != "" {
