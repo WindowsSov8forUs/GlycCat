@@ -3,6 +3,7 @@ package mp4
 import (
 	"bytes"
 	"crypto/md5"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -24,8 +25,29 @@ var HeadersMP4 []string = []string{
 
 // IsMP4 判断是否为 MP4 文件
 func IsMP4(file []byte) bool {
-	for _, header := range HeadersMP4 {
-		if bytes.HasPrefix(file, []byte(header)) {
+	// ISO BMFF 的 ftyp 前面是 box 长度，不能从第一个字节比较品牌名。
+	if len(file) < 16 || !bytes.Equal(file[4:8], []byte("ftyp")) {
+		return false
+	}
+	size := uint64(binary.BigEndian.Uint32(file[:4]))
+	headerSize := 8
+	if size == 1 {
+		if len(file) < 24 {
+			return false
+		}
+		size = binary.BigEndian.Uint64(file[8:16])
+		headerSize = 16
+	}
+	if size < uint64(headerSize+8) || size > uint64(len(file)) || (size-uint64(headerSize))%4 != 0 {
+		return false
+	}
+	for offset := headerSize; offset+4 <= int(size); offset += 4 {
+		if offset == headerSize+4 {
+			continue // minor_version 不是品牌名。
+		}
+		brand := string(file[offset : offset+4])
+		switch brand {
+		case "isom", "iso2", "iso3", "iso4", "iso5", "iso6", "avc1", "mp41", "mp42":
 			return true
 		}
 	}
