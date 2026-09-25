@@ -1,2 +1,23 @@
 /*.exe
 docs
+
+# 运行配置、备份与本地工作区
+/config.yml
+/config.yaml
+/*.backup-*
+/*.backup
+/.env
+/.env.*
+/go.work
+/go.work.sum
+
+# 运行数据与构建产物；log 目录中的 Go 源码仍受版本管理
+/data/
+/log/*.log
+/log/*.log.gz
+/dist/
+/glyccat
+/*.test
+/run.bat
+/restart.bat
+/restart.flag
