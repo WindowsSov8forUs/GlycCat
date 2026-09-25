@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"time"
 
 	"github.com/mattn/go-isatty"
 
@@ -57,7 +56,7 @@ func InitBase() {
 			err := NoMoreDoubleClick()
 			if err != nil {
 				log.Errorf("遇到错误: %v", err)
-				time.Sleep(time.Second * 5)
+				os.Exit(1)
 			}
 			os.Exit(0)
 		}
