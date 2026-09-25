@@ -144,7 +144,7 @@ func partialMessages(data []byte) ([]*message.Message, error) {
 		return nil, nil
 	}
 	if err := json.Unmarshal(data, &body); err != nil {
-		return nil, fmt.Errorf("解析部分发送结果失败: %w", err)
+		return nil, fmt.Errorf("解析部分发送结果时出错: %w", err)
 	}
 	return body.Messages, nil
 }

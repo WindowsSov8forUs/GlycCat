@@ -30,7 +30,7 @@ type Logger struct{}
 
 func (Logger) Log(_ context.Context, level server.LogLevel, v ...any) {
 	if len(v) == 0 {
-		v = []any{"Satori 服务事件"}
+		v = []any{"收到 Satori 服务事件。"}
 	}
 	lvl := log.INFO
 	switch level {
@@ -47,11 +47,11 @@ func (Logger) Log(_ context.Context, level server.LogLevel, v ...any) {
 func main() {
 	err := run()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "程序运行失败: %v\n", err)
+		fmt.Fprintf(os.Stderr, "应用运行时出错: %s\n", log.SafeText(fmt.Sprint(err)))
 	}
 	closeErr := log.Close()
 	if closeErr != nil {
-		fmt.Fprintf(os.Stderr, "关闭日志失败: %v\n", closeErr)
+		fmt.Fprintf(os.Stderr, "关闭日志文件时出错: %s\n", log.SafeText(fmt.Sprint(closeErr)))
 	}
 	if err != nil || closeErr != nil {
 		os.Exit(1)
@@ -83,20 +83,20 @@ func run() (runErr error) {
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer cancel()
 		result, err := database.MigrateMessages(ctx, *legacyMessages, *migrationTarget, *migrationAppID, *migrationSelfID)
-		fmt.Printf("消息迁移结果：读取 %d 条，导入 %d 条，已存在 %d 条，无法迁移 %d 条\n", result.Read, result.Imported, result.Skipped, result.Failed)
+		fmt.Printf("消息迁移结束，读取 %d 条，导入 %d 条，跳过已有消息 %d 条，无法迁移 %d 条。\n", result.Read, result.Imported, result.Skipped, result.Failed)
 		return err
 	}
 	if *initialize {
 		if err := config.InitializeConfig(*configPath); err != nil {
 			return err
 		}
-		fmt.Printf("配置已保存至 %s\n", *configPath)
+		fmt.Printf("配置文件已保存至: %s\n", log.SafeText(*configPath))
 		return nil
 	}
 	if *updateConfig {
 		backup, err := config.UpdateConfig(*configPath)
 		if backup != "" {
-			fmt.Printf("原配置备份: %s\n", backup)
+			fmt.Printf("原配置文件已备份为: %s\n", log.SafeText(backup))
 		}
 		return err
 	}
@@ -112,9 +112,11 @@ func run() (runErr error) {
 	if err != nil {
 		return err
 	}
+	log.SetSecrets(conf.Account.AppSecret, conf.Account.Token, conf.Satori.Token)
 	log.SetLogLevel(conf.LogLevel)
 	if *debug {
 		log.SetLogLevel(log.DEBUG)
+		log.Warn("正在 Debug 模式下运行服务器！")
 	}
 	if err := log.Start(); err != nil {
 		return err
@@ -122,22 +124,24 @@ func run() (runErr error) {
 	// 原生 SDK 使用进程级日志入口，仅在主程序启动时注册一次。
 	qq.RegisterSDKLogger(Logger{})
 	if conf.FileServer.Enable {
-		log.Warn("旧文件服务器已退出普通发送链路，媒体请使用 upload.create；原文件数据保持不变")
+		log.Warn("旧文件服务器已停用，请通过 upload.create 上传媒体。原有文件数据不会自动删除。")
 	}
 	var messageStore *database.MessageStore
 	if conf.Database.MessageDatabase.Enable {
+		log.Info("正在启动消息数据库...")
 		messageStore, err = database.OpenMessageStore(database.DefaultMessageStorePath, conf.Database.MessageDatabase.Limit)
 		if err != nil {
-			return fmt.Errorf("启动消息数据库失败: %w", err)
+			return fmt.Errorf("启动消息数据库时出错: %w", err)
 		}
+		log.Info("消息数据库已启动。")
 		defer func() { runErr = errors.Join(runErr, messageStore.Close()) }()
 	} else {
-		log.Warn("消息数据库未启用，群聊和私聊历史缓存不可用")
+		log.Warn("消息数据库未启动，将无法使用消息缓存。")
 	}
 
 	bundle, err := newRuntime(conf, messageStore)
 	if err != nil {
-		return fmt.Errorf("初始化运行环境失败: %w", err)
+		return fmt.Errorf("建立应用运行环境时出错: %w", err)
 	}
 	defer func() { runErr = errors.Join(runErr, bundle.satoriServer.Close()) }()
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -162,7 +166,7 @@ func (r *runtimeBundle) Run(ctx context.Context) error {
 			return fmt.Errorf("监听 QQ 回调地址失败: %w", err)
 		}
 		defer callbackListener.Close()
-		log.Infof("QQ 回调监听地址: %s", callbackListener.Addr())
+		log.Infof("WebHook 监听建立成功，监听地址: %s", callbackListener.Addr())
 	}
 
 	satoriResult := make(chan error, 1)
@@ -171,13 +175,13 @@ func (r *runtimeBundle) Run(ctx context.Context) error {
 	if callbackListener != nil {
 		go func() { callbackResult <- r.qqWebhookServer.Serve(callbackListener) }()
 	}
-	log.Infof("Satori 服务地址: %s", r.satoriServer.URLBase())
+	log.Infof("正在启动 Satori 服务端，服务地址: %s", r.satoriServer.URLBase())
 
 	var runErr error
 	satoriFinished := false
 	select {
 	case <-ctx.Done():
-		log.Info("收到退出信号，正在关闭服务")
+		log.Info("收到退出信号，正在关闭 Satori 服务端...")
 	case runErr = <-satoriResult:
 		satoriFinished = true
 	case runErr = <-callbackResult:
@@ -204,7 +208,7 @@ func (r *runtimeBundle) Run(ctx context.Context) error {
 		case result := <-satoriResult:
 			runErr = errors.Join(runErr, result)
 		case <-shutdownCtx.Done():
-			runErr = errors.Join(runErr, fmt.Errorf("等待 Satori 服务退出超时: %w", shutdownCtx.Err()))
+			runErr = errors.Join(runErr, fmt.Errorf("等待 Satori 服务端关闭超时: %w", shutdownCtx.Err()))
 		}
 	}
 	return runErr
@@ -286,6 +290,7 @@ func buildQQWebhookServer(conf *config.Config, registrar server.RootRouteRegistr
 	return &http.Server{
 		Addr:              net.JoinHostPort(webhookHost, strconv.Itoa(int(webhookPort))),
 		Handler:           router,
+		ErrorLog:          log.HTTPErrorLogger(),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
@@ -304,6 +309,15 @@ func responseHeaderMiddleware(satoriVersion, serverHeader string) func(http.Hand
 			if satoriVersion != "" {
 				w.Header().Set("X-Satori-Protocol", satoriVersion)
 			}
+			// 沿用历史请求概要，不输出请求头、请求体或代理资源的能力地址。
+			requestPath := request.URL.Path
+			for _, prefix := range []string{"/proxy/", "/internal/"} {
+				if index := strings.Index(requestPath, prefix); index >= 0 {
+					requestPath = requestPath[:index] + prefix + "[已省略资源路径]"
+					break
+				}
+			}
+			log.Debugf("收到请求: %s %s", request.Method, requestPath)
 			next.ServeHTTP(w, request)
 		})
 	}

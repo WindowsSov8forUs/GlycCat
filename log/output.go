@@ -17,7 +17,7 @@ func Start() error {
 		return nil
 	}
 	if err := os.MkdirAll("log", 0700); err != nil {
-		return fmt.Errorf("创建日志目录失败: %w", err)
+		return fmt.Errorf("创建日志目录时出错: %w", err)
 	}
 	logger.lumberjack = &lumberjack.Logger{
 		Filename:   "log/glyc-cat.log",

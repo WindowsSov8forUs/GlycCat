@@ -79,7 +79,7 @@ func (f *CustomFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	level := levelColor("[%s]", levelName)
 
 	// 组合日志消息
-	return []byte(fmt.Sprintf("%s %s: %s\n", timestamp, level, entry.Message)), nil
+	return []byte(fmt.Sprintf("%s %s: %s\n", timestamp, level, SafeText(entry.Message))), nil
 }
 
 // 初始化 Logger 对象
