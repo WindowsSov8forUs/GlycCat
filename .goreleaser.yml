@@ -3,12 +3,8 @@ version: 2
 
 before:
   hooks:
-    - mkdir -p internal
-    - go mod tidy
-    - go generate ./...
-    - go install github.com/akavel/rsrc@latest
-    - which rsrc
-    - rm -rf ./dist
+    - go mod verify
+    - go vet ./...
 
 release:
   prerelease: auto
@@ -18,6 +14,9 @@ builds:
     env:
       - CGO_ENABLED=0
       - GO111MODULE=on
+      - GOWORK=off
+      - GOTOOLCHAIN=local
+      - GOFLAGS=-mod=readonly
     goos:
       - linux
       - darwin
@@ -32,6 +31,9 @@ builds:
     env:
       - CGO_ENABLED=0
       - GO111MODULE=on
+      - GOWORK=off
+      - GOTOOLCHAIN=local
+      - GOFLAGS=-mod=readonly
     goos:
       - windows
     goarch:
