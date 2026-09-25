@@ -43,6 +43,9 @@ func InitializeConfig(path string) error {
 	if err := SetConfigByInput(conf); err != nil {
 		return fmt.Errorf("初始化配置已中止: %w", err)
 	}
+	if err := conf.NormalizeAndValidate(); err != nil {
+		return err
+	}
 	data, err := marshalConfig(conf)
 	if err != nil {
 		return err
@@ -120,7 +123,32 @@ func decodeConfig(data []byte) (*Config, error) {
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("配置文件只能包含一个 YAML 文档")
 	}
+	var document yaml.Node
+	if err := yaml.Unmarshal(data, &document); err != nil || len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("配置必须为 YAML 映射")
+	}
+	if conf.Account.WebSocket.Enable && !hasConfigField(document.Content[0], "account", "webhook", "enable") {
+		conf.Account.WebHook.Enable = false
+	}
+	if err := conf.NormalizeAndValidate(); err != nil {
+		return nil, err
+	}
 	return conf, nil
+}
+
+func hasConfigField(node *yaml.Node, keys ...string) bool {
+	if len(keys) == 0 {
+		return true
+	}
+	if node.Kind != yaml.MappingNode {
+		return false
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == keys[0] {
+			return hasConfigField(node.Content[i+1], keys[1:]...)
+		}
+	}
+	return false
 }
 
 // writeConfigFile 使用同目录临时文件；初始化不覆盖，迁移不覆盖并发修改

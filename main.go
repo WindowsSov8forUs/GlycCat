@@ -74,12 +74,6 @@ func main() {
 
 	log.GetLogger()
 
-	if conf.Account.Token == "" {
-		log.Fatal("bot token is empty, please configure account token")
-		os.Exit(0)
-		return
-	}
-
 	fileserver.StartFileServer(conf)
 
 	if conf.Database.MessageDatabase.Enable {
