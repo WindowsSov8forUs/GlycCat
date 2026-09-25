@@ -13,12 +13,10 @@ import (
 
 	"github.com/WindowsSov8forUs/glyccat/config"
 	"github.com/WindowsSov8forUs/glyccat/database"
-	"github.com/WindowsSov8forUs/glyccat/fileserver"
 	"github.com/WindowsSov8forUs/glyccat/log"
 	"github.com/WindowsSov8forUs/glyccat/sys"
 	"github.com/WindowsSov8forUs/glyccat/version"
 
-	"github.com/gin-gonic/gin"
 	"github.com/go-chi/chi/v5"
 	"github.com/satori-protocol-go/satori-go/pkg/satori/adapter/qq"
 	"github.com/satori-protocol-go/satori-go/pkg/satori/server"
@@ -75,21 +73,14 @@ func main() {
 	log.SetLogLevel(conf.LogLevel)
 
 	if *debug {
-		log.Warn("running in debug mode")
-		gin.SetMode(gin.DebugMode)
-	} else {
-		gin.SetMode(gin.ReleaseMode)
+		log.SetLogLevel(log.DEBUG)
 	}
 
 	log.GetLogger()
 
-	if conf.Account.Token == "" {
-		log.Fatal("bot token is empty, please configure account token")
-		os.Exit(0)
-		return
+	if conf.FileServer.Enable {
+		log.Warn("旧文件服务器已退出普通发送链路，媒体请使用 upload.create；原文件数据保持不变")
 	}
-
-	fileserver.StartFileServer(conf)
 
 	if conf.Database.MessageDatabase.Enable {
 		log.Info("starting message database")
@@ -164,13 +155,12 @@ func newRuntime(conf *config.Config) (*runtimeBundle, error) {
 	adapterCfg := qq.Config{
 		AppID:         conf.Account.AppID,
 		Secret:        conf.Account.AppSecret,
-		Token:         conf.Account.Token,
 		Sandbox:       conf.Account.Sandbox,
 		Path:          conf.Account.WebHook.Path,
 		Adapter:       "GlycCat",
 		UseWebSocket:  useWebSocket,
 		WSIntentNames: conf.Account.WebSocket.Intents,
-		WSShardCount:  conf.Account.WebSocket.Shards,
+		WSShardCount:  0, // 新 SDK 默认启动网关返回的完整分片集合
 	}
 
 	innerAdapter, err := qq.New(adapterCfg)

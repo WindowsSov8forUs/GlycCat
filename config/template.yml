@@ -8,13 +8,13 @@ log_level: 4
 account: # QQ 机器人配置
   bot_id: 0 # 兼容旧配置；实际账号身份由 QQ 开放平台返回
   app_id: 0 # 机器人 ID
-  token: "" # 旧 QQ SDK 运行仍需填写
+  token: "" # 兼容旧配置；新版 SDK 不再使用此字段
   app_secret: "" # 机器人密钥
   sandbox: false # 是否使用沙箱环境
 
   websocket:
     enable: false # 是否启用 WebSocket，与 WebHook 二选一
-    shards: 1 # WebSocket 分片数
+    shards: 0 # 兼容旧分片数量；默认由 SDK 自动启动完整分片集合
     intents: [] # 留空时使用 SDK 默认订阅；填写时保留完整订阅名称
 
   webhook:
@@ -23,7 +23,7 @@ account: # QQ 机器人配置
     port: 0 # 0 表示沿用 Satori 端口；这里监听 HTTP，HTTPS 由反向代理提供
     path: "/qqbot" # QQ 开放平台回调路径
 
-# 本地文件服务器配置；仅启用时需要提供公网地址
+# 兼容旧文件服务器配置，普通媒体上传使用 SDK，不需要公网文件服务器
 file_server:
   enable: false
   external_url: ""
@@ -41,7 +41,7 @@ satori: # Satori 配置
 
   server:
     host: "127.0.0.1" # 服务器监听地址
-    port: 5500 # 服务器端口
+    port: 5140 # 服务器端口
 
   webhook:
     timeout: 10 # 反向推送总耗时上限，单位秒；0 不追加应用上限，仍受 SDK 单订阅超时限制

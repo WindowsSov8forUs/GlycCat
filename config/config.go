@@ -30,9 +30,9 @@ type Config struct {
 
 // Account QQ 机器人账号配置
 type Account struct {
-	BotID     uint64    `yaml:"bot_id"`     // 机器人 QQ 号
+	BotID     uint64    `yaml:"bot_id"`     // 兼容旧配置，运行时身份以 SDK 返回的 user.id 为准
 	AppID     uint64    `yaml:"app_id"`     // 机器人 ID
-	Token     string    `yaml:"token"`      // 旧 QQ SDK 运行时使用的令牌
+	Token     string    `yaml:"token"`      // 兼容旧配置，不参与新版 QQ 鉴权
 	AppSecret string    `yaml:"app_secret"` // 机器人密钥
 	Sandbox   bool      `yaml:"sandbox"`    // 是否使用沙箱环境
 	WebSocket WebSocket `yaml:"websocket"`  // WebSocket 配置
@@ -54,7 +54,7 @@ type QQWebHook struct {
 	Path   string `yaml:"path"`   // WebHook 路径
 }
 
-// FileServer 本地文件服务器配置
+// FileServer 仅保留旧配置的读取兼容，不启动旧文件服务或清理旧数据
 type FileServer struct {
 	Enable      bool   `yaml:"enable"`       // 是否启用对外本地文件服务器
 	ExternalURL string `yaml:"external_url"` // 本地文件服务器公网地址 {{ .Host }}:{{ .Port }}
@@ -106,7 +106,7 @@ func GetSatoriToken() string {
 func DefaultConfig() *Config {
 	return &Config{
 		LogLevel: log.INFO,
-		Account:  Account{WebSocket: WebSocket{Shards: 1}, WebHook: QQWebHook{Enable: true, Path: "/qqbot"}},
+		Account:  Account{WebHook: QQWebHook{Enable: true, Path: "/qqbot"}},
 		Database: Database{
 			MessageDatabase: MessageDatabase{
 				Enable: true,
@@ -115,7 +115,7 @@ func DefaultConfig() *Config {
 		},
 		Satori: Satori{
 			Version: 1,
-			Server:  Server{Host: "127.0.0.1", Port: 5500},
+			Server:  Server{Host: "127.0.0.1", Port: 5140},
 			WebHook: WebHook{
 				Timeout: 10, // 默认 WebHook 超时时间为 10 秒
 			},
@@ -192,10 +192,6 @@ func SetConfigByInput(conf *Config) error {
 		return fmt.Errorf("设置账号配置时出错: %w", err)
 	}
 
-	if err := promptFileServerConfig(conf); err != nil {
-		return fmt.Errorf("设置文件服务器配置时出错: %w", err)
-	}
-
 	if err := promptSatoriConfig(conf); err != nil {
 		return fmt.Errorf("设置 Satori 配置时出错: %w", err)
 	}
@@ -207,118 +203,56 @@ func SetConfigByInput(conf *Config) error {
 func promptAccountConfig(conf *Config) error {
 	questions := []*survey.Question{
 		{
-			Name: "bot_id",
-			Prompt: &survey.Input{
-				Message: "机器人 QQ 号:",
-				Help:    "通过 QQ 开放平台-管理-开发设置获取到的机器人 QQ 号",
-			},
-			Validate: func(val interface{}) error {
-				if str, ok := val.(string); ok {
-					if _, err := strconv.ParseUint(str, 10, 64); err != nil {
-						return fmt.Errorf("无效的机器人 QQ 号，请输入一个有效的数字")
-					}
+			Name:   "app_id",
+			Prompt: &survey.Input{Message: "AppID(机器人 ID):", Help: "通过 QQ 开放平台-管理-开发设置获取 AppID"},
+			Validate: func(value interface{}) error {
+				text, ok := value.(string)
+				if !ok {
+					return fmt.Errorf("请输入有效的 AppID")
+				}
+				id, err := strconv.ParseUint(text, 10, 64)
+				if err != nil || id == 0 {
+					return fmt.Errorf("AppID 必须为大于 0 的数字")
 				}
 				return nil
 			},
 		},
 		{
-			Name: "app_id",
-			Prompt: &survey.Input{
-				Message: "AppID(机器人 ID ):",
-				Help:    "通过 QQ 开放平台-管理-开发设置获取到的 AppID",
-			},
-			Validate: func(val interface{}) error {
-				if str, ok := val.(string); ok {
-					if _, err := strconv.ParseUint(str, 10, 64); err != nil {
-						return fmt.Errorf("无效的 AppID，请输入一个有效的数字")
-					}
-				}
-				return nil
-			},
-		},
-		{
-			Name: "token",
-			Prompt: &survey.Input{
-				Message: "Token(机器人令牌):",
-				Help:    "通过 QQ 开放平台-管理-开发设置获取到的 Token",
-			},
-			Validate: survey.Required,
-		},
-		{
-			Name: "app_secret",
-			Prompt: &survey.Password{
-				Message: "AppSecret(机器人密钥):",
-				Help:    "通过 QQ 开放平台-管理-开发设置获取到的 AppSecret",
-			},
+			Name:     "app_secret",
+			Prompt:   &survey.Password{Message: "AppSecret(机器人密钥):"},
 			Validate: survey.Required,
 		},
 	}
-
 	answer := struct {
-		BotID     uint64 `survey:"bot_id"`
 		AppID     uint64 `survey:"app_id"`
-		Token     string `survey:"token"`
 		AppSecret string `survey:"app_secret"`
 	}{}
-
 	if err := survey.Ask(questions, &answer); err != nil {
 		return err
 	}
-
-	conf.Account.BotID = answer.BotID
 	conf.Account.AppID = answer.AppID
-	conf.Account.Token = answer.Token
 	conf.Account.AppSecret = answer.AppSecret
-
-	// 提问选择 WebHook 还是 WebSocket
 	connectPrompt := &survey.Select{
 		Message: "选择开放平台连接方式:",
 		Options: []string{"WebSocket", "WebHook"},
 		Default: "WebHook",
-		Help:    "目前 QQ 开放平台已逐渐取消对 WebSocket 的支持，建议使用 WebHook 连接方式",
+		Help:    "请根据机器人实际开放的接收方式选择",
 	}
-	connectAnswer := ""
-	if err := survey.AskOne(connectPrompt, &connectAnswer); err != nil {
+	var mode string
+	if err := survey.AskOne(connectPrompt, &mode); err != nil {
 		return err
 	}
-
-	// 根据用户选择的连接方式进行配置
-	if connectAnswer == "WebSocket" {
-		conf.Account.WebSocket.Enable = true
-		conf.Account.WebHook.Enable = false
-		if err := promptAccountWebSocketConfig(conf); err != nil {
-			return err
-		}
-	} else {
-		conf.Account.WebSocket.Enable = false
-		conf.Account.WebHook.Enable = true
-		if err := promptAccountWebHookConfig(conf); err != nil {
-			return err
-		}
+	conf.Account.WebSocket.Enable = mode == "WebSocket"
+	conf.Account.WebHook.Enable = mode == "WebHook"
+	if conf.Account.WebSocket.Enable {
+		return promptAccountWebSocketConfig(conf)
 	}
-
-	return nil
+	return promptAccountWebHookConfig(conf)
 }
 
 // promptAccountWebSocketConfig 提示用户输入开放平台 WebSocket 配置
 func promptAccountWebSocketConfig(conf *Config) error {
 	questions := []*survey.Question{
-		{
-			Name: "shards",
-			Prompt: &survey.Input{
-				Message: "分片数(Shards):",
-				Help:    "建议保持默认的 1 ，多了不知道会发生什么",
-				Default: "1",
-			},
-			Validate: func(val interface{}) error {
-				if str, ok := val.(string); ok {
-					if shards, err := strconv.ParseUint(str, 10, 32); err != nil || shards < 1 {
-						return fmt.Errorf("无效的分片数，请输入一个大于等于 1 的数字")
-					}
-				}
-				return nil
-			},
-		},
 		{
 			Name: "intents",
 			Prompt: &survey.MultiSelect{
@@ -336,7 +270,7 @@ func promptAccountWebSocketConfig(conf *Config) error {
 					"AUDIO_ACTION",            // 音频机器人事件
 					"PUBLIC_GUILD_MESSAGES",   // 公域频道消息事件
 				},
-				Default: []string{"GUILDS", "GUILD_MEMBERS", "PUBLIC_GUILD_MESSAGES"},
+				Default: []string{"GUILDS", "GUILD_MEMBERS", "PUBLIC_GUILD_MESSAGES", "GROUP_AND_C2C_EVENT", "INTERACTION", "MESSAGE_AUDIT"},
 				Help:    "使用空格键选择/取消选择，回车键确认",
 			},
 			Validate: func(val interface{}) error {
@@ -351,7 +285,6 @@ func promptAccountWebSocketConfig(conf *Config) error {
 	}
 
 	answer := struct {
-		Shards  uint32   `survey:"shards"`
 		Intents []string `survey:"intents"`
 	}{}
 
@@ -359,7 +292,7 @@ func promptAccountWebSocketConfig(conf *Config) error {
 		return err
 	}
 
-	conf.Account.WebSocket.Shards = answer.Shards
+	conf.Account.WebSocket.Shards = 0
 	conf.Account.WebSocket.Intents = answer.Intents
 
 	return nil
@@ -380,8 +313,8 @@ func promptAccountWebHookConfig(conf *Config) error {
 			Name: "port",
 			Prompt: &survey.Input{
 				Message: "监听端口:",
-				Default: "443",
-				Help:    "监听端口，目前开放平台仅支持 80、443、8080、8443 四个端口",
+				Default: "8081",
+				Help:    "本地 HTTP 监听端口，公网 HTTPS 和端口转发由反向代理提供",
 			},
 			Validate: func(val interface{}) error {
 				if str, ok := val.(string); ok {
@@ -397,7 +330,7 @@ func promptAccountWebHookConfig(conf *Config) error {
 			Prompt: &survey.Input{
 				Message: "WebHook 路径:",
 				Default: "",
-				Help:    "WebHook 回调的路径，默认为空，即根路径",
+				Help:    "WebHook 回调路径，留空使用 /qqbot",
 			},
 		},
 	}
@@ -420,65 +353,6 @@ func promptAccountWebHookConfig(conf *Config) error {
 	conf.Account.WebHook.Host = answer.Host
 	conf.Account.WebHook.Port = answer.Port
 	conf.Account.WebHook.Path = answer.Path
-
-	return nil
-}
-
-// promptFileServerConfig 提示用户输入本地文件服务器配置
-func promptFileServerConfig(conf *Config) error {
-	enablePrompt := &survey.Confirm{
-		Message: "是否启用本地文件服务器?",
-		Default: true,
-		Help:    "启用后可以通过本地文件服务器上传和下载文件，否则可能无法发送富媒体消息。默认启用",
-	}
-	var enable bool
-	if err := survey.AskOne(enablePrompt, &enable); err != nil {
-		return err
-	}
-
-	if enable {
-		conf.FileServer.Enable = true
-	} else {
-		return nil
-	}
-
-	questions := []*survey.Question{
-		{
-			Name: "external_url",
-			Prompt: &survey.Input{
-				Message: "公网地址:",
-				Help:    "用于访问本地文件服务器的公网地址",
-			},
-		},
-		{
-			Name: "ttl",
-			Prompt: &survey.Input{
-				Message: "文件有效期(秒):",
-				Help:    "用于设置文件的有效期，默认 3600 秒，若为 0 则表示永久有效",
-				Default: "3600",
-			},
-			Validate: func(val interface{}) error {
-				if str, ok := val.(string); ok {
-					if _, err := strconv.ParseUint(str, 10, 64); err != nil {
-						return fmt.Errorf("无效的文件有效期")
-					}
-				}
-				return nil
-			},
-		},
-	}
-
-	answer := struct {
-		ExternalURL string `survey:"external_url"`
-		TTL         uint64 `survey:"ttl"`
-	}{}
-
-	if err := survey.Ask(questions, &answer); err != nil {
-		return err
-	}
-
-	conf.FileServer.ExternalURL = answer.ExternalURL
-	conf.FileServer.TTL = answer.TTL
 
 	return nil
 }
@@ -516,7 +390,7 @@ func promptSatoriConfig(conf *Config) error {
 			Name: "port",
 			Prompt: &survey.Input{
 				Message: "Satori 服务器端口:",
-				Default: "5500",
+				Default: "5140",
 				Help:    "Satori 服务器所在的端口",
 			},
 			Validate: func(val interface{}) error {
