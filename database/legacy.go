@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/gob"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -44,14 +45,9 @@ func MigrateMessages(ctx context.Context, sourcePath, targetPath, appID, selfID 
 	if err != nil {
 		return result, fmt.Errorf("找不到旧库备份目录: %w", err)
 	}
-	targetPath, err = filepath.Abs(targetPath)
+	targetPath, err = resolveMigrationTarget(targetPath)
 	if err != nil {
 		return result, err
-	}
-	if resolved, resolveErr := filepath.EvalSymlinks(targetPath); resolveErr == nil {
-		targetPath = resolved
-	} else if !errors.Is(resolveErr, os.ErrNotExist) {
-		return result, resolveErr
 	}
 	if strings.EqualFold(sourcePath, targetPath) || strings.HasPrefix(strings.ToLower(targetPath), strings.ToLower(sourcePath)+string(os.PathSeparator)) {
 		return result, fmt.Errorf("新库不能是原库或原库内的子目录")
@@ -96,9 +92,14 @@ func MigrateMessages(ctx context.Context, sourcePath, targetPath, appID, selfID 
 	if err := iter.Error(); err != nil {
 		return result, err
 	}
-	// 同步最后一个写入屏障，确保正常完成时前面的迁移写入已落盘。
+	// 同步本次处理记录；存在失败项时不能写成迁移全部完成。
+	owner, _ := (MessageScope{AppID: strconv.FormatUint(id, 10), Platform: "qq", SelfID: selfID}).ownerPrefix()
+	progress, err := json.Marshal(result)
+	if err != nil {
+		return result, err
+	}
 	target.mu.Lock()
-	err = target.db.Put([]byte("migration_completed"), []byte(strconv.Itoa(result.Read)), &opt.WriteOptions{Sync: true})
+	err = target.db.Put([]byte("migration_progress:"+owner), progress, &opt.WriteOptions{Sync: true})
 	target.mu.Unlock()
 	if err != nil {
 		return result, err
@@ -135,4 +136,38 @@ func decodeLegacyMessage(key string, data []byte, appID, selfID string) (Message
 	}
 	msg.Channel = &channel.Channel{Id: channelID, Type: kind}
 	return MessageScope{AppID: appID, Platform: "qq", SelfID: selfID, ChannelID: channelID}, &msg, nil
+}
+
+// resolveMigrationTarget 同时解析尚未创建目标的父目录链接，避免将新库写回原库内
+func resolveMigrationTarget(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	existing := absolute
+	var missing []string
+	for {
+		resolved, err := filepath.EvalSymlinks(existing)
+		if err == nil {
+			for i := len(missing) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, missing[i])
+			}
+			return resolved, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			return "", fmt.Errorf("迁移目标没有可用的父目录: %w", err)
+		}
+		// 已存在但无法解析的链接不能当成待创建目录。
+		if _, statErr := os.Lstat(existing); statErr == nil {
+			return "", fmt.Errorf("迁移目标包含失效链接: %w", err)
+		} else if !errors.Is(statErr, os.ErrNotExist) {
+			return "", statErr
+		}
+		missing = append(missing, filepath.Base(existing))
+		existing = parent
+	}
 }
