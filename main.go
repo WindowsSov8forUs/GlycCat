@@ -56,12 +56,6 @@ func main() {
 
 	log.GetLogger()
 
-	if conf.Account.Token == "" {
-		log.Fatal("bot token is empty, please configure account token")
-		os.Exit(0)
-		return
-	}
-
 	if err := log.Start(); err != nil {
 		fmt.Printf("start log failed: %v\n", err)
 		os.Exit(1)
@@ -143,7 +137,6 @@ func newRuntime(conf *config.Config) (*runtimeBundle, error) {
 	adapterCfg := qq.Config{
 		AppID:         conf.Account.AppID,
 		Secret:        conf.Account.AppSecret,
-		Token:         conf.Account.Token,
 		Sandbox:       conf.Account.Sandbox,
 		Path:          conf.Account.WebHook.Path,
 		Adapter:       "GlycCat",
