@@ -15,6 +15,7 @@ account: # QQ 机器人配置
   websocket:
     enable: false # 是否启用 WebSocket，与 WebHook 二选一
     shards: 0 # 兼容旧分片数量；默认由 SDK 自动启动完整分片集合
+    # 手动分片时同时填写 shard_id 和 shard_count，例如 shard_id: 0、shard_count: 2
     intents: [] # 留空时使用 SDK 默认订阅；填写时保留完整订阅名称
 
   webhook:

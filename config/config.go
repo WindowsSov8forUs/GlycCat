@@ -43,6 +43,8 @@ type Account struct {
 type WebSocket struct {
 	Enable     bool     `yaml:"enable"`                // 是否启用 WebSocket
 	Shards     uint32   `yaml:"shards"`                // 兼容旧分片配置
+	ShardID    *uint32  `yaml:"shard_id,omitempty"`    // 手动分片编号
+	ShardCount uint32   `yaml:"shard_count,omitempty"` // 手动分片总数
 	Intents    []string `yaml:"intents"`               // 事件订阅
 }
 
@@ -293,6 +295,8 @@ func promptAccountWebSocketConfig(conf *Config) error {
 	}
 
 	conf.Account.WebSocket.Shards = 0
+	conf.Account.WebSocket.ShardID = nil
+	conf.Account.WebSocket.ShardCount = 0
 	conf.Account.WebSocket.Intents = answer.Intents
 
 	return nil

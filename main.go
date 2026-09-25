@@ -160,7 +160,10 @@ func newRuntime(conf *config.Config) (*runtimeBundle, error) {
 		Adapter:       "GlycCat",
 		UseWebSocket:  useWebSocket,
 		WSIntentNames: conf.Account.WebSocket.Intents,
-		WSShardCount:  0, // 新 SDK 默认启动网关返回的完整分片集合
+		WSShardCount:  conf.Account.WebSocket.ShardCount,
+	}
+	if conf.Account.WebSocket.ShardID != nil {
+		adapterCfg.WSShardID = *conf.Account.WebSocket.ShardID
 	}
 
 	innerAdapter, err := qq.New(adapterCfg)
@@ -178,6 +181,8 @@ func newRuntime(conf *config.Config) (*runtimeBundle, error) {
 		Path:    conf.Satori.Path,
 		Version: fmt.Sprintf("v%d", version),
 		Token:   conf.Satori.Token,
+		// 仅约束 Satori 反向推送，不改变 QQ 请求或资源代理的超时。
+		HTTPClient: &http.Client{Timeout: time.Duration(conf.Satori.WebHook.Timeout) * time.Second},
 	})
 	if err != nil {
 		return nil, err

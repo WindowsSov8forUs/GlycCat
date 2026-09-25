@@ -83,6 +83,12 @@ func (conf *Config) NormalizeAndValidate() error {
 			log.Warn("旧 websocket.shards 配置不再表示单个分片，将使用自动分片；手动部署请使用 shard_id 和 shard_count")
 			ws.Shards = 0
 		}
+		if (ws.ShardID == nil) != (ws.ShardCount == 0) {
+			return fmt.Errorf("手动分片必须同时填写 shard_id 和大于 0 的 shard_count")
+		}
+		if ws.ShardID != nil && *ws.ShardID >= ws.ShardCount {
+			return fmt.Errorf("shard_id 必须小于 shard_count")
+		}
 		for i, value := range ws.Intents {
 			name := strings.ToUpper(strings.TrimSpace(value))
 			if !knownIntents[name] {
