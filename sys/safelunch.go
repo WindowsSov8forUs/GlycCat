@@ -4,8 +4,10 @@
 package sys
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -15,15 +17,13 @@ import (
 func RunningByDoubleClick() bool {
 	kernel32 := windows.NewLazySystemDLL("kernel32.dll")
 	proc := kernel32.NewProc("GetConsoleProcessList")
-	if proc != nil {
-		var pids [2]uint32
-		var maxCount uint32 = 2
-		ret, _, _ := proc.Call(uintptr(unsafe.Pointer(&pids)), uintptr(maxCount))
-		if ret > 1 {
-			return false
-		}
+	if err := proc.Find(); err != nil {
+		return false
 	}
-	return true
+	var pids [2]uint32
+	ret, _, _ := proc.Call(uintptr(unsafe.Pointer(&pids)), uintptr(len(pids)))
+	// 没有控制台或调用失败时不能推断为双击，后台运行也不能弹出窗口。
+	return ret == 1
 }
 
 // NoMoreDoubleClick 提示不要双击运行，并生成启动脚本
@@ -37,21 +37,26 @@ func NoMoreDoubleClick() error {
 	if r == 2 {
 		return nil
 	}
-	f, err := os.OpenFile("run.bat", os.O_CREATE|os.O_RDWR, 0o666)
+	executable, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	_ = f.Truncate(0)
-
-	ex, _ := os.Executable()
-	exPath := filepath.Base(ex)
-	_, err = f.WriteString("%Created by GlycCat. DO NOT EDIT ME!%\nstart cmd /K \"" + exPath + "\"")
+	file, err := os.OpenFile(filepath.Join(filepath.Dir(executable), "run.bat"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
 	}
-	f.Close()
+	_, writeErr := file.WriteString(safeLaunchScript(executable))
+	if err := errors.Join(writeErr, file.Close()); err != nil {
+		return err
+	}
 	boxW(0, "已释出安全启动脚本，请双击 run.bat 启动", "提示", 0x00000000)
 	return nil
+}
+
+func safeLaunchScript(executable string) string {
+	// 从程序所在目录启动，保留空格、中文路径以及传入参数。
+	name := strings.ReplaceAll(filepath.Base(executable), "%", "%%")
+	return "@echo off\r\ncd /d \"%~dp0\"\r\n\"%~dp0" + name + "\" %*\r\npause\r\n"
 }
 
 // toHighDPI tries to raise DPI awareness context to DPI_AWARENESS_CONTEXT_UNAWARE_GDISCALED
