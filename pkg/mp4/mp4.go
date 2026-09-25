@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/WindowsSov8forUs/glyccat/pkg/command"
 	"io"
 	"net/http"
 	"os"
@@ -129,11 +130,8 @@ func EncoderMP4Context(ctx context.Context, data []byte) (result []byte, resultE
 		"-acodec", "aac", "-movflags", "+faststart", "-fs", strconv.Itoa(maxVideoBytes), output)
 	cmd.Dir = dir
 	cmd.WaitDelay = 2 * time.Second
-	if err := cmd.Run(); err != nil {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		return nil, fmt.Errorf("视频转码失败: %w", err)
+	if err := command.Run(ctx, cmd, "视频转码"); err != nil {
+		return nil, err
 	}
 	file, err := os.Open(output)
 	if err != nil {

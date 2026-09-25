@@ -213,6 +213,7 @@ func (a *Adapter) registerCacheRoutes() {
 		request.Params.Content = content
 		content, err = a.prepareMessageMedia(request)
 		if err != nil {
+			log.Errorf("发送前媒体预处理失败: %v", err)
 			return nil, err
 		}
 		request.Params.Content = content

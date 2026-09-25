@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/WindowsSov8forUs/glyccat/log"
 	imageutil "github.com/WindowsSov8forUs/glyccat/pkg/image"
 	"github.com/WindowsSov8forUs/glyccat/pkg/mp4"
 	"github.com/WindowsSov8forUs/glyccat/pkg/silk"
@@ -81,7 +82,7 @@ func (a *Adapter) prepareMessageMedia(request *server.Request[server.MessageCrea
 		}
 		payload, err := convert.ResolveMessageResourcePayload(src)
 		if err != nil {
-			return "", server.BadRequest("媒体资源地址无效")
+			return "", server.NewActionError(400, "媒体资源地址无效: "+log.SafeText(err.Error()), err)
 		}
 		data := payload.Data
 		if payload.Internal != "" {
