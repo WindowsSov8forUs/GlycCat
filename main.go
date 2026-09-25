@@ -25,6 +25,24 @@ import (
 	"github.com/satori-protocol-go/satori-go/pkg/satori/server"
 )
 
+type Logger struct{}
+
+func (Logger) Log(_ context.Context, level server.LogLevel, v ...any) {
+	if len(v) == 0 {
+		v = []any{"Satori 服务事件"}
+	}
+	lvl := log.INFO
+	switch level {
+	case server.LogLevelDebug:
+		lvl = log.DEBUG
+	case server.LogLevelWarn:
+		lvl = log.WARN
+	case server.LogLevelError:
+		lvl = log.ERROR
+	}
+	log.GetLogger().Println(lvl, v...)
+}
+
 func main() {
 	fastStart := flag.Bool("faststart", false, "fast startup")
 	debug := flag.Bool("debug", false, "debug mode")
@@ -100,7 +118,16 @@ func main() {
 		log.SetLogLevel(log.DEBUG)
 	}
 
-	log.GetLogger()
+	if err := log.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "启动日志失败: %v\n", err)
+		os.Exit(1)
+	}
+	defer func() {
+		if err := log.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "关闭日志失败: %v\n", err)
+		}
+	}()
+	qq.RegisterSDKLogger(Logger{})
 
 	if conf.FileServer.Enable {
 		log.Warn("旧文件服务器已退出普通发送链路，媒体请使用 upload.create；原文件数据保持不变")
@@ -190,6 +217,7 @@ func newRuntime(conf *config.Config, messageStore *database.MessageStore) (*runt
 		UseWebSocket:  conf.Account.WebSocket.Enable,
 		WSIntentNames: conf.Account.WebSocket.Intents,
 		WSShardCount:  conf.Account.WebSocket.ShardCount,
+		Logger:        Logger{},
 	}
 	if conf.Account.WebSocket.ShardID != nil {
 		adapterCfg.WSShardID = *conf.Account.WebSocket.ShardID
@@ -211,6 +239,7 @@ func newRuntime(conf *config.Config, messageStore *database.MessageStore) (*runt
 		Version:       satoriVersion,
 		Token:         conf.Satori.Token,
 		ReplaceRouter: apiRouter,
+		Logger:        Logger{},
 		// 仅约束 Satori 反向推送，不改变 QQ 请求或资源代理的超时。
 		HTTPClient: &http.Client{Timeout: time.Duration(conf.Satori.WebHook.Timeout) * time.Second},
 	})
