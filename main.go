@@ -16,6 +16,7 @@ import (
 	"github.com/WindowsSov8forUs/glyccat/config"
 	"github.com/WindowsSov8forUs/glyccat/database"
 	"github.com/WindowsSov8forUs/glyccat/log"
+	"github.com/WindowsSov8forUs/glyccat/processor"
 	"github.com/WindowsSov8forUs/glyccat/sys"
 	"github.com/WindowsSov8forUs/glyccat/version"
 
@@ -84,17 +85,23 @@ func main() {
 		log.Warn("旧文件服务器已退出普通发送链路，媒体请使用 upload.create；原文件数据保持不变")
 	}
 
+	var messageStore *database.MessageStore
 	if conf.Database.MessageDatabase.Enable {
-		log.Info("starting message database")
-		err := database.StartMessageDB(conf.Database.MessageDatabase.Limit)
+		messageStore, err = database.OpenMessageStore(database.DefaultMessageStorePath, conf.Database.MessageDatabase.Limit)
 		if err != nil {
-			log.Errorf("start message database failed: %v", err)
+			log.Errorf("启动消息数据库失败: %v", err)
+			os.Exit(1)
 		}
+		defer func() {
+			if err := messageStore.Close(); err != nil {
+				log.Errorf("关闭消息数据库失败: %v", err)
+			}
+		}()
 	} else {
-		log.Warn("message database is disabled")
+		log.Warn("消息数据库未启用，群聊和私聊历史缓存不可用")
 	}
 
-	runtime, err := newRuntime(conf)
+	runtime, err := newRuntime(conf, messageStore)
 	if err != nil {
 		log.Fatalf("initialize runtime failed: %v", err)
 	}
@@ -148,7 +155,7 @@ type runtimeBundle struct {
 	qqWebhookServer *http.Server
 }
 
-func newRuntime(conf *config.Config) (*runtimeBundle, error) {
+func newRuntime(conf *config.Config, messageStore *database.MessageStore) (*runtimeBundle, error) {
 	if err := conf.NormalizeAndValidate(); err != nil {
 		return nil, err
 	}
@@ -189,11 +196,15 @@ func newRuntime(conf *config.Config) (*runtimeBundle, error) {
 	if err != nil {
 		return nil, err
 	}
-	if applyErr := srv.Apply(innerAdapter); applyErr != nil {
+	appAdapter, err := processor.NewAdapter(innerAdapter, messageStore, strconv.FormatUint(conf.Account.AppID, 10))
+	if err != nil {
+		return nil, err
+	}
+	if applyErr := srv.Apply(appAdapter); applyErr != nil {
 		return nil, applyErr
 	}
 
-	webhookServer := buildQQWebhookServer(conf, innerAdapter, satoriVersion, serverHeader)
+	webhookServer := buildQQWebhookServer(conf, appAdapter, satoriVersion, serverHeader)
 
 	return &runtimeBundle{
 		satoriServer:    srv,

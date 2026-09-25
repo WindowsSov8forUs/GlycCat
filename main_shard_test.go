@@ -15,7 +15,7 @@ func TestNewRuntimeAcceptsManualWebSocketShard(t *testing.T) {
 	shardID := uint32(0)
 	conf.Account.WebSocket.ShardID = &shardID
 	conf.Account.WebSocket.ShardCount = 2
-	bundle, err := newRuntime(conf)
+	bundle, err := newRuntime(conf, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
