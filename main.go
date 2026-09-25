@@ -7,14 +7,15 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/WindowsSov8forUs/glyccat/config"
 	"github.com/WindowsSov8forUs/glyccat/database"
-	"github.com/WindowsSov8forUs/glyccat/fileserver"
 	"github.com/WindowsSov8forUs/glyccat/log"
+	"github.com/WindowsSov8forUs/glyccat/processor"
 	"github.com/WindowsSov8forUs/glyccat/sys"
 	"github.com/WindowsSov8forUs/glyccat/version"
 
@@ -62,22 +63,23 @@ func main() {
 	}
 	defer log.Close()
 
-	fileserver.StartFileServer(conf)
-
+	var messageStore *database.MessageStore
 	if conf.Database.MessageDatabase.Enable {
-		log.Info("starting message database")
-		err := database.StartMessageDB(conf.Database.MessageDatabase.Limit)
+		messageStore, err = database.OpenMessageStore(database.DefaultMessageStorePath, conf.Database.MessageDatabase.Limit)
 		if err != nil {
-			log.Errorf("start message database failed: %v", err)
+			log.Fatalf("start message database failed: %v", err)
 		}
+		defer messageStore.Close()
 	} else {
 		log.Warn("message database is disabled")
 	}
 
-	runtime, err := newRuntime(conf)
+	runtime, err := newRuntime(conf, messageStore)
 	if err != nil {
 		log.Fatalf("initialize runtime failed: %v", err)
 	}
+
+	defer runtime.satoriServer.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -128,7 +130,7 @@ type runtimeBundle struct {
 	qqWebhookServer *http.Server
 }
 
-func newRuntime(conf *config.Config) (*runtimeBundle, error) {
+func newRuntime(conf *config.Config, messageStore *database.MessageStore) (*runtimeBundle, error) {
 	useWebSocket := conf.Account.WebSocket.Enable && !conf.Account.WebHook.Enable
 	if !useWebSocket && !conf.Account.WebHook.Enable {
 		return nil, fmt.Errorf("both webhook and websocket are disabled")
@@ -164,11 +166,17 @@ func newRuntime(conf *config.Config) (*runtimeBundle, error) {
 	if err != nil {
 		return nil, err
 	}
-	if applyErr := srv.Apply(innerAdapter); applyErr != nil {
+	appAdapter, err := processor.NewAdapter(innerAdapter, messageStore, strconv.FormatUint(conf.Account.AppID, 10))
+	if err != nil {
+		_ = srv.Close()
+		return nil, err
+	}
+	if applyErr := srv.Apply(appAdapter); applyErr != nil {
+		_ = srv.Close()
 		return nil, applyErr
 	}
 
-	webhookServer := buildQQWebhookServer(conf, innerAdapter)
+	webhookServer := buildQQWebhookServer(conf, appAdapter)
 
 	return &runtimeBundle{
 		satoriServer:    srv,
