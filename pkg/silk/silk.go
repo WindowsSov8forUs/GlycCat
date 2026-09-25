@@ -2,19 +2,19 @@ package silk
 
 import (
 	"bytes"
-	"crypto/md5"
+	"context"
 	"embed"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
-	"path"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 )
 
 //go:embed exec/*
@@ -25,7 +25,9 @@ const (
 	HeaderSilk string = "\x02#!SILK_V3" // Silkv3 文件头
 )
 
-const cachePath = "data/cache"
+const maxAudioBytes = 32 * 1024 * 1024
+
+var audioProcessing = make(chan struct{}, 2)
 
 const limit = 4 * 1024
 
@@ -44,113 +46,121 @@ func CheckAudio(readSeeker io.ReadSeeker) (string, bool) {
 }
 
 // scanType 扫描格式
-func scanType(readerSeeker io.ReadSeeker) string {
-	_, _ = readerSeeker.Seek(0, io.SeekStart)
-	defer readerSeeker.Seek(0, io.SeekStart)
-	in := make([]byte, limit)
-	_, _ = readerSeeker.Read(in)
-	return http.DetectContentType(in)
+func scanType(reader io.ReadSeeker) string {
+	if reader == nil {
+		return ""
+	}
+	if _, err := reader.Seek(0, io.SeekStart); err != nil {
+		return ""
+	}
+	defer reader.Seek(0, io.SeekStart)
+	data := make([]byte, limit)
+	n, err := io.ReadFull(reader, data)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		return ""
+	}
+	return http.DetectContentType(data[:n])
 }
 
 // EncoderSilk 编码为 SILK
 func EncoderSilk(data []byte) ([]byte, error) {
-	hash := md5.New()
-	_, err := hash.Write(data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to compute md5: %v", err)
-	}
-	name := hex.EncodeToString(hash.Sum(nil))
-	return encode(data, name)
+	return EncoderSilkContext(context.Background(), data)
 }
 
-// encode 编码为 SILK
-func encode(data []byte, name string) (silkWav []byte, err error) {
-	// 0. 创建缓存目录
-	err = createDirectoryIfNotExist(cachePath)
+// EncoderSilkContext 按请求取消转码，两步转换共享时间和独立目录
+func EncoderSilkContext(ctx context.Context, data []byte) (result []byte, resultErr error) {
+	if len(data) == 0 || len(data) > maxAudioBytes {
+		return nil, fmt.Errorf("音频内容为空或超过 32 MiB 上限")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	select {
+	case audioProcessing <- struct{}{}:
+		defer func() { <-audioProcessing }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	codecName, err := getSilkCodecPath()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create audio cache directory: %v", err)
+		return nil, err
 	}
-
-	// 1. 创建临时文件
-	rawPath := path.Join(cachePath, name+".wav")
-	err = os.WriteFile(rawPath, data, os.ModePerm)
+	codecData, err := silkCodecs.ReadFile(codecName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create temporary file: %v", err)
+		return nil, fmt.Errorf("读取内嵌 SILK 编码器失败: %w", err)
 	}
-	defer os.Remove(rawPath)
-
-	// 2. 转换 PCM
-	sampleRate := 24000 // 固定采样率，之后可能采取配置或动态决定
-	pcmPath := path.Join(cachePath, name+".pcm")
-	cmd := exec.Command("ffmpeg", "-i", rawPath, "-f", "s16le", "-ar", strconv.Itoa(sampleRate), "-ac", "1", pcmPath)
-	if errors.Is(cmd.Err, exec.ErrDot) {
-		cmd.Err = nil
-	}
-	if err = cmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to convert to pcm: %v", err)
-	}
-	defer os.Remove(pcmPath)
-
-	silkPath := path.Join(cachePath, name+".silk")
-
-	// 3. 转换 SILK
-	codecFileName, err := getSilkCodecPath()
+	program, err := exec.LookPath("ffmpeg")
 	if err != nil {
-		return nil, fmt.Errorf("failed to get silk codec path: %v", err)
+		return nil, fmt.Errorf("未找到可信的 ffmpeg，请将安装目录加入 PATH: %w", err)
 	}
-	codecData, err := silkCodecs.ReadFile(codecFileName)
+	dir, err := os.MkdirTemp("", "glyccat-audio-*")
 	if err != nil {
-		return nil, fmt.Errorf("failed to read silk codec: %v", err)
+		return nil, err
 	}
-	filePattern := "silk_codec*"
+	defer func() { resultErr = errors.Join(resultErr, os.RemoveAll(dir)) }()
+	input := filepath.Join(dir, "input")
+	pcm := filepath.Join(dir, "output.pcm")
+	output := filepath.Join(dir, "output.silk")
+	codec := filepath.Join(dir, "codec")
 	if runtime.GOOS == "windows" {
-		filePattern += ".exe"
+		codec += ".exe"
 	}
-	file, err := os.CreateTemp("", filePattern)
+	if err := os.WriteFile(input, data, 0600); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(codec, codecData, 0700); err != nil {
+		return nil, err
+	}
+	sampleRate := 24000
+	cmd := exec.CommandContext(ctx, program,
+		"-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-max_alloc", "67108864",
+		"-protocol_whitelist", "file,pipe",
+		"-format_whitelist", "aac,ac3,aiff,amr,ape,flac,matroska,webm,mov,mp4,m4a,3gp,3g2,mj2,mp3,ogg,wav",
+		"-threads", "2", "-i", input, "-map", "0:a:0", "-threads", "2",
+		"-f", "s16le", "-ar", strconv.Itoa(sampleRate), "-ac", "1", "-fs", strconv.Itoa(maxAudioBytes), pcm)
+	cmd.Dir = dir
+	cmd.WaitDelay = 2 * time.Second
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, fmt.Errorf("音频转换为 PCM 失败: %w", err)
+	}
+	info, err := os.Stat(pcm)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create silk codec temporary file: %v", err)
+		return nil, err
 	}
-	defer os.Remove(file.Name())
-	if _, err := file.Write(codecData); err != nil {
-		return nil, fmt.Errorf("failed to write silk codec temporary file: %v", err)
+	if info.Size() <= 0 || info.Size() >= maxAudioBytes {
+		return nil, fmt.Errorf("PCM 内容为空或达到输出上限，不发送截断音频")
 	}
-	if err := file.Close(); err != nil {
-		return nil, fmt.Errorf("failed to close silk codec temporary file: %v", err)
+	args := []string{"-i", pcm, "-o", output, "-s", strconv.Itoa(sampleRate)}
+	if runtime.GOOS != "windows" {
+		args = append([]string{"pts"}, args...)
 	}
-	if err := os.Chmod(file.Name(), 0700); err != nil {
-		return nil, fmt.Errorf("failed to change silk codec temporary file permission: %v", err)
-	}
-	if runtime.GOOS == "windows" {
-		cmd = exec.Command(file.Name(), "-i", pcmPath, "-o", silkPath, "-s", strconv.Itoa(sampleRate))
-		if err := cmd.Run(); err != nil {
-			return nil, fmt.Errorf("failed to encode silk: %v", err)
+	cmd = exec.CommandContext(ctx, codec, args...)
+	cmd.Dir = dir
+	cmd.WaitDelay = 2 * time.Second
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
 		}
-	} else {
-		cmd = exec.Command(file.Name(), "pts", "-i", pcmPath, "-o", silkPath, "-s", strconv.Itoa(sampleRate))
-		if err := cmd.Run(); err != nil {
-			return nil, fmt.Errorf("failed to encode silk: %v", err)
-		}
+		return nil, fmt.Errorf("SILK 编码失败: %w", err)
 	}
-	silkWav, err = os.ReadFile(silkPath)
+	file, err := os.Open(output)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read silk file: %v", err)
+		return nil, err
 	}
-	defer os.Remove(silkPath)
-
-	return silkWav, nil
-}
-
-// createDirectoryIfNotExist 检查目录是否存在，不存在则创建
-func createDirectoryIfNotExist(path string) error {
-	_, err := os.Stat(path)
-	if os.IsNotExist(err) {
-		// 创建目录
-		err := os.MkdirAll(path, os.ModePerm)
-		if err != nil {
-			return err
-		}
+	defer file.Close()
+	result, err = io.ReadAll(io.LimitReader(file, maxAudioBytes+1))
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	if len(result) > maxAudioBytes || !IsAMRorSILK(result) {
+		return nil, fmt.Errorf("SILK 编码结果格式无效或超过上限")
+	}
+	return result, ctx.Err()
 }
 
 // getSilkCodecPath 获取 SILK 编解码器路径
@@ -159,7 +169,9 @@ func getSilkCodecPath() (string, error) {
 	// 根据 OS 不同获取不同路径
 	switch runtime.GOOS {
 	case "windows":
-		// Windows 下统一使用叶大神编码器
+		if runtime.GOARCH != "amd64" {
+			return "", fmt.Errorf("当前 Windows 架构没有匹配的 SILK 编码器: %s", runtime.GOARCH)
+		}
 		codecFileName = "silk_codec-windows.exe"
 	case "linux":
 		switch runtime.GOARCH {
@@ -168,30 +180,28 @@ func getSilkCodecPath() (string, error) {
 		case "arm64":
 			codecFileName = "silk_codec-linux-arm64"
 		default:
-			return "", fmt.Errorf("unsupported architecture for Linux: %s", runtime.GOARCH)
+			return "", fmt.Errorf("当前 Linux 架构没有匹配的 SILK 编码器: %s", runtime.GOARCH)
 		}
 	case "darwin":
 		switch runtime.GOARCH {
 		case "amd64":
 			codecFileName = "silk_codec-macos"
-		case "arm64":
-			codecFileName = "silk_codec-macos"
 		default:
-			return "", fmt.Errorf("unsupported architecture for macOS: %s", runtime.GOARCH)
+			return "", fmt.Errorf("当前 %s/%s 没有匹配的 SILK 编码器", runtime.GOOS, runtime.GOARCH)
 		}
 	case "android":
 		switch runtime.GOARCH {
 		case "arm64":
 			codecFileName = "silk_codec-android-arm64"
-		case "x86":
+		case "386":
 			codecFileName = "silk_codec-android-x86"
-		case "x86_64":
+		case "amd64":
 			codecFileName = "silk_codec-android-x86_64"
 		default:
-			return "", fmt.Errorf("unsupported architecture for macOS: %s", runtime.GOARCH)
+			return "", fmt.Errorf("当前 %s/%s 没有匹配的 SILK 编码器", runtime.GOOS, runtime.GOARCH)
 		}
 	default:
-		return "", fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+		return "", fmt.Errorf("当前平台没有匹配的 SILK 编码器: %s", runtime.GOOS)
 	}
 
 	return "exec/" + codecFileName, nil
