@@ -7,22 +7,25 @@ on:
 
 permissions:
   contents: write
-  packages: write
 
 jobs:
   build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    env:
+      GOTOOLCHAIN: local
+      GOWORK: off
+      GOFLAGS: -mod=readonly
     steps:
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: '1.21'
-
       - name: Check out code into the Go module directory
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # 获取完整的 git 历史，解决浅克隆问题
+          fetch-depth: 0 # 保留版本标签和完整提交历史
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: go.mod
 
       - name: Set up environment
         run: |
@@ -33,7 +36,7 @@ jobs:
       - name: Build binaries
         uses: goreleaser/goreleaser-action@v5
         with:
-          version: '~> v2'
+          version: v2.12.0
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
