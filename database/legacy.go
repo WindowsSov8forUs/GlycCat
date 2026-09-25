@@ -115,6 +115,7 @@ func decodeLegacyMessage(key string, data []byte, appID, selfID string) (Message
 	if len(parts) != 3 || (parts[0] != "group" && parts[0] != "private") || !validIdentifier(parts[1]) || !validIdentifier(parts[2]) {
 		return MessageScope{}, nil, ErrCorrupt
 	}
+	// gob 仅用于读取旧库的导出字段；新库仍保存版本化 JSON，不沿用旧格式写入。
 	var msg message.Message
 	if err := gob.NewDecoder(bytes.NewReader(data)).Decode(&msg); err != nil {
 		return MessageScope{}, nil, err
@@ -125,6 +126,7 @@ func decodeLegacyMessage(key string, data []byte, appID, selfID string) (Message
 	channelID := parts[1]
 	kind := channel.ChannelTypeText
 	if parts[0] == "private" {
+		// 旧键已经明确标记私聊才补前缀，不从裸 OpenID 猜测会话类型。
 		channelID = "private:" + channelID
 		kind = channel.ChannelTypeDirect
 		msg.Guild = nil

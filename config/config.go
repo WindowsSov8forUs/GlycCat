@@ -29,9 +29,9 @@ type Config struct {
 
 // Account QQ 机器人账号配置
 type Account struct {
-	BotID     uint64    `yaml:"bot_id"`     // 机器人 QQ 号
+	BotID     uint64    `yaml:"bot_id"`     // 兼容旧配置，运行时身份以 SDK 返回的 user.id 为准
 	AppID     uint64    `yaml:"app_id"`     // 机器人 ID
-	Token     string    `yaml:"token"`      // 机器人令牌
+	Token     string    `yaml:"token"`      // 兼容旧配置，不参与新版 QQ 鉴权
 	AppSecret string    `yaml:"app_secret"` // 机器人密钥
 	Sandbox   bool      `yaml:"sandbox"`    // 是否使用沙箱环境
 	WebSocket WebSocket `yaml:"websocket"`  // WebSocket 配置
@@ -55,7 +55,7 @@ type QQWebHook struct {
 	Path   string `yaml:"path"`   // WebHook 路径
 }
 
-// FileServer 本地文件服务器配置
+// FileServer 仅保留旧配置的读取兼容，不启动旧文件服务或清理旧数据
 type FileServer struct {
 	Enable      bool   `yaml:"enable"`       // 是否启用对外本地文件服务器
 	ExternalURL string `yaml:"external_url"` // 本地文件服务器公网地址 {{ .Host }}:{{ .Port }}
@@ -90,7 +90,7 @@ type Server struct {
 
 // WebHook WebHook 客户端配置
 type WebHook struct {
-	Timeout uint32 `yaml:"timeout"` // 超时时间
+	Timeout uint32 `yaml:"timeout"` // 反向推送的应用总耗时上限，单位秒；0 不追加应用上限
 }
 
 // GetSatoriToken 获取 Satori 鉴权令牌
