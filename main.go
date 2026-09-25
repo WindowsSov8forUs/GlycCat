@@ -4,9 +4,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -147,9 +149,8 @@ type runtimeBundle struct {
 }
 
 func newRuntime(conf *config.Config) (*runtimeBundle, error) {
-	useWebSocket := conf.Account.WebSocket.Enable && !conf.Account.WebHook.Enable
-	if !useWebSocket && !conf.Account.WebHook.Enable {
-		return nil, fmt.Errorf("both webhook and websocket are disabled")
+	if err := conf.NormalizeAndValidate(); err != nil {
+		return nil, err
 	}
 
 	adapterCfg := qq.Config{
@@ -158,7 +159,7 @@ func newRuntime(conf *config.Config) (*runtimeBundle, error) {
 		Sandbox:       conf.Account.Sandbox,
 		Path:          conf.Account.WebHook.Path,
 		Adapter:       "GlycCat",
-		UseWebSocket:  useWebSocket,
+		UseWebSocket:  conf.Account.WebSocket.Enable,
 		WSIntentNames: conf.Account.WebSocket.Intents,
 		WSShardCount:  conf.Account.WebSocket.ShardCount,
 	}
@@ -171,16 +172,17 @@ func newRuntime(conf *config.Config) (*runtimeBundle, error) {
 		return nil, err
 	}
 
-	version := conf.Satori.Version
-	if version == 0 {
-		version = 1
-	}
+	satoriVersion := fmt.Sprintf("v%d", conf.Satori.Version)
+	serverHeader := fmt.Sprintf("GlycCat/%s", version.Version)
+	apiRouter := chi.NewRouter()
+	apiRouter.Use(responseHeaderMiddleware(satoriVersion, serverHeader))
 	srv, err := server.NewServer(server.Config{
-		Host:    conf.Satori.Server.Host,
-		Port:    int(conf.Satori.Server.Port),
-		Path:    conf.Satori.Path,
-		Version: fmt.Sprintf("v%d", version),
-		Token:   conf.Satori.Token,
+		Host:          conf.Satori.Server.Host,
+		Port:          int(conf.Satori.Server.Port),
+		Path:          conf.Satori.Path,
+		Version:       satoriVersion,
+		Token:         conf.Satori.Token,
+		ReplaceRouter: apiRouter,
 		// 仅约束 Satori 反向推送，不改变 QQ 请求或资源代理的超时。
 		HTTPClient: &http.Client{Timeout: time.Duration(conf.Satori.WebHook.Timeout) * time.Second},
 	})
@@ -191,7 +193,7 @@ func newRuntime(conf *config.Config) (*runtimeBundle, error) {
 		return nil, applyErr
 	}
 
-	webhookServer := buildQQWebhookServer(conf, innerAdapter)
+	webhookServer := buildQQWebhookServer(conf, innerAdapter, satoriVersion, serverHeader)
 
 	return &runtimeBundle{
 		satoriServer:    srv,
@@ -199,57 +201,43 @@ func newRuntime(conf *config.Config) (*runtimeBundle, error) {
 	}, nil
 }
 
-func buildQQWebhookServer(conf *config.Config, registrar server.RootRouteRegistrar) *http.Server {
+func buildQQWebhookServer(conf *config.Config, registrar server.RootRouteRegistrar, satoriVersion, serverHeader string) *http.Server {
 	if !conf.Account.WebHook.Enable {
 		return nil
 	}
 
-	webhookHost := strings.TrimSpace(conf.Account.WebHook.Host)
-	if webhookHost == "" {
-		webhookHost = strings.TrimSpace(conf.Satori.Server.Host)
-	}
+	webhookHost := conf.Account.WebHook.Host
 	webhookPort := conf.Account.WebHook.Port
-	if webhookPort == 0 {
-		webhookPort = conf.Satori.Server.Port
-	}
-
-	satoriHost := strings.TrimSpace(conf.Satori.Server.Host)
-	if satoriHost == "" {
-		satoriHost = "127.0.0.1"
-	}
-	satoriPort := conf.Satori.Server.Port
-	if satoriPort == 0 {
-		satoriPort = 5500
-	}
-
-	if isSameListenEndpoint(webhookHost, webhookPort, satoriHost, satoriPort) {
+	if isSameListenEndpoint(webhookHost, webhookPort, conf.Satori.Server.Host, conf.Satori.Server.Port) {
 		return nil
 	}
 
 	router := chi.NewRouter()
+	router.Use(responseHeaderMiddleware(satoriVersion, serverHeader))
 	registrar.RegisterRootRoutes(router)
 
 	return &http.Server{
-		Addr:    fmt.Sprintf("%s:%d", webhookHost, webhookPort),
-		Handler: router,
+		Addr:              net.JoinHostPort(webhookHost, strconv.Itoa(int(webhookPort))),
+		Handler:           router,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 }
 
 func isSameListenEndpoint(hostA string, portA uint16, hostB string, portB uint16) bool {
-	if portA != portB {
-		return false
+	return portA == portB && strings.EqualFold(hostA, hostB)
+}
+
+func responseHeaderMiddleware(satoriVersion, serverHeader string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+			if serverHeader != "" {
+				w.Header().Set("Server", serverHeader)
+			}
+			if satoriVersion != "" {
+				w.Header().Set("X-Satori-Protocol", satoriVersion)
+			}
+			next.ServeHTTP(w, request)
+		})
 	}
-	normalize := func(host string) string {
-		host = strings.TrimSpace(host)
-		if host == "" || host == "::" {
-			return "0.0.0.0"
-		}
-		return host
-	}
-	a := normalize(hostA)
-	b := normalize(hostB)
-	if a == b {
-		return true
-	}
-	return a == "0.0.0.0" || b == "0.0.0.0"
 }
