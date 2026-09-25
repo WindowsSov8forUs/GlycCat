@@ -198,9 +198,8 @@ type runtimeBundle struct {
 }
 
 func newRuntime(conf *config.Config, messageStore *database.MessageStore) (*runtimeBundle, error) {
-	useWebSocket := conf.Account.WebSocket.Enable && !conf.Account.WebHook.Enable
-	if !useWebSocket && !conf.Account.WebHook.Enable {
-		return nil, fmt.Errorf("both webhook and websocket are disabled")
+	if err := conf.NormalizeAndValidate(); err != nil {
+		return nil, err
 	}
 
 	logger := Logger{}
@@ -210,10 +209,13 @@ func newRuntime(conf *config.Config, messageStore *database.MessageStore) (*runt
 		Sandbox:       conf.Account.Sandbox,
 		Path:          conf.Account.WebHook.Path,
 		Adapter:       "GlycCat",
-		UseWebSocket:  useWebSocket,
+		UseWebSocket:  conf.Account.WebSocket.Enable,
 		WSIntentNames: conf.Account.WebSocket.Intents,
-		WSShardCount:  conf.Account.WebSocket.Shards,
+		WSShardCount:  conf.Account.WebSocket.ShardCount,
 		Logger:        logger,
+	}
+	if conf.Account.WebSocket.ShardID != nil {
+		adapterCfg.WSShardID = *conf.Account.WebSocket.ShardID
 	}
 
 	innerAdapter, err := qq.New(adapterCfg)
