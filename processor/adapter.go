@@ -177,6 +177,21 @@ func (a *Adapter) registerCacheRoutes() {
 		}
 		return result, err
 	}
+	createChannel := a.routes["user.channel.create"]
+	a.routes["user.channel.create"] = server.Wrapper(func(request *server.Request[server.UserChannelCreateParam]) (any, error) {
+		if request.Platform == "qq" && request.Params.UserID == "" {
+			return nil, server.BadRequest("创建私聊频道必须提供用户 ID")
+		}
+		result, err := createChannel(forwardRequest(request))
+		if err == nil && responseSucceeded(result) && a.store != nil && request.Platform == "qq" {
+			if ch, ok := result.(*channel.Channel); ok && ch != nil {
+				if cacheErr := a.store.Observe(a.scope(request.Platform, request.SelfID, ch.Id), ch, nil, 0, true); cacheErr != nil {
+					log.Errorf("缓存已创建私聊频道失败: %v", cacheErr)
+				}
+			}
+		}
+		return result, err
+	})
 	create := a.routes["message.create"]
 	a.routes["message.create"] = server.Wrapper(func(request *server.Request[server.MessageCreateParam]) (any, error) {
 		result, err := create(forwardRequest(request))

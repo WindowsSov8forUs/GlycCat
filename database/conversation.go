@@ -53,7 +53,7 @@ func (s *MessageStore) Observe(scope MessageScope, ch *channel.Channel, group *g
 		if err != nil {
 			return err
 		}
-		if previous.Timestamp > timestamp {
+		if previous.Timestamp > timestamp || (previous.Timestamp == timestamp && !previous.Active && active) {
 			return nil
 		}
 	} else if !errors.Is(err, leveldb.ErrNotFound) {
@@ -69,6 +69,20 @@ func (s *MessageStore) Observe(scope MessageScope, ch *channel.Channel, group *g
 	}
 	if copied.Type == channel.ChannelTypeDirect {
 		group = nil
+	} else if group != nil {
+		if group.Id != ch.Id {
+			return fmt.Errorf("%w: 已观察群组与会话不一致", ErrInvalid)
+		}
+		value := *group
+		if previous != nil && previous.Guild != nil && previous.Guild.Id == group.Id {
+			if value.Name == "" {
+				value.Name = previous.Guild.Name
+			}
+			if value.Avatar == "" {
+				value.Avatar = previous.Guild.Avatar
+			}
+		}
+		group = &value
 	}
 	item := &Conversation{SchemaVersion: messageSchemaVersion, Channel: &copied, Guild: group, Timestamp: timestamp, Active: active}
 	data, err := json.Marshal(item)

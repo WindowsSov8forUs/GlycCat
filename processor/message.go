@@ -34,9 +34,9 @@ func (a *Adapter) cacheEvent(evt *event.Event) error {
 	}
 	scope := a.scope(evt.Login.Platform, evt.Login.User.Id, ch.Id)
 	switch evt.Type {
-	case event.EventTypeGuildAdded, event.EventTypeGuildUpdated:
+	case event.EventTypeGuildAdded, event.EventTypeGuildUpdated, "friend-added":
 		return a.store.Observe(scope, ch, evt.Guild, evt.Timestamp, true)
-	case event.EventTypeGuildRemoved:
+	case event.EventTypeGuildRemoved, "friend-removed":
 		return a.store.Observe(scope, ch, evt.Guild, evt.Timestamp, false)
 	case event.EventTypeMessageDeleted:
 		if evt.Message == nil {
