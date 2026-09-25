@@ -27,7 +27,34 @@ import (
 func main() {
 	fastStart := flag.Bool("faststart", false, "fast startup")
 	debug := flag.Bool("debug", false, "debug mode")
+	configPath := flag.String("config", "config.yml", "配置文件路径")
+	initialize := flag.Bool("init", false, "交互式初始化配置，不覆盖已有文件")
+	updateConfig := flag.Bool("update-config", false, "备份并显式迁移配置")
 	flag.Parse()
+
+	if *initialize && *updateConfig {
+		fmt.Fprintln(os.Stderr, "初始化配置与迁移配置不能同时执行")
+		os.Exit(2)
+	}
+	if *initialize {
+		if err := config.InitializeConfig(*configPath); err != nil {
+			fmt.Fprintf(os.Stderr, "初始化配置失败: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("配置已保存至 %s\n", *configPath)
+		return
+	}
+	if *updateConfig {
+		backup, err := config.UpdateConfig(*configPath)
+		if backup != "" {
+			fmt.Printf("原配置备份: %s\n", backup)
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "迁移配置失败: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	if !*fastStart {
 		sys.InitBase()
@@ -38,10 +65,10 @@ func main() {
 	log.PrintlnCyan(versionString)
 	fmt.Print("\n==========================================================\n\n")
 
-	conf, err := config.LoadConfig("config.yml")
+	conf, err := config.LoadConfig(*configPath)
 	if err != nil {
 		fmt.Printf("%s load config failed: %v\n", log.FailMark, log.Red(fmt.Sprint(err)))
-		os.Exit(0)
+		os.Exit(1)
 		return
 	}
 
