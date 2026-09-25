@@ -72,7 +72,8 @@ func scanContentTags(ctx context.Context, content string) ([]contentTag, error) 
 
 func hidesResources(tag string) bool {
 	switch tag {
-	case "quote", "text", "qq:ark", "markdown", "qq:button-group", "button":
+	case "quote", "text", "at", "sharp", "br", "img", "image", "audio", "video", "file",
+		"qq:passive", "qq:ark", "markdown", "qq:button-group", "button":
 		return true
 	default:
 		return false

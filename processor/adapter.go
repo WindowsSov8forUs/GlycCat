@@ -20,13 +20,14 @@ import (
 // 服务端只注册本封装一次，原生路由和可选生命周期接口由内层适配器保留。
 type Adapter struct {
 	*qq.Adapter
-	store     *database.MessageStore
-	appID     string
-	routes    map[string]server.RouteCall[any, any]
-	events    chan *event.Event
-	eventOnce sync.Once
-	closed    context.Context
-	cancel    context.CancelFunc
+	store          *database.MessageStore
+	resourceServer *server.Server // Apply 时绑定，用于校验并读取本服务的临时媒体。
+	appID          string
+	routes         map[string]server.RouteCall[any, any]
+	events         chan *event.Event
+	eventOnce      sync.Once
+	closed         context.Context
+	cancel         context.CancelFunc
 }
 
 func NewAdapter(inner *qq.Adapter, store *database.MessageStore, appID string) (*Adapter, error) {
@@ -48,6 +49,11 @@ func NewAdapter(inner *qq.Adapter, store *database.MessageStore, appID string) (
 
 func (a *Adapter) Routes() map[string]server.RouteCall[any, any] {
 	return a.routes
+}
+
+func (a *Adapter) EnsureServer(srv *server.Server) {
+	a.resourceServer = srv
+	a.Adapter.EnsureServer(srv)
 }
 
 func (a *Adapter) GetLogins(ctx context.Context) ([]*login.Login, error) {
@@ -202,6 +208,12 @@ func (a *Adapter) registerCacheRoutes() {
 			return nil, server.BadRequest(err.Error())
 		}
 		request.Params.Content = content
+		content, err = a.prepareMessageMedia(request)
+		if err != nil {
+			return nil, err
+		}
+		request.Params.Content = content
+		// 全部预处理完成后才发送；发送分段、回复序号和部分成功响应仍由 SDK 负责。
 		result, err := create(forwardRequest(request))
 		if err == nil && a.store != nil && request.Platform == "qq" {
 			if cacheErr := a.cacheSent(request, result); cacheErr != nil {
