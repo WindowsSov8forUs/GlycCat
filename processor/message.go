@@ -120,8 +120,11 @@ func (a *Adapter) cacheSent(request *server.Request[server.MessageCreateParam], 
 		} else if cached.Guild == nil || cached.Guild.Id != channelID {
 			cached.Guild = &guild.Guild{Id: channelID}
 		}
-		if cached.User == nil {
+		// 部分 QQ 发送响应携带的是接收者，已发送消息的作者始终是当前机器人。
+		if cached.User == nil || cached.User.Id != request.SelfID {
 			cached.User = &user.User{Id: request.SelfID, IsBot: true}
+		} else {
+			cached.User.IsBot = true
 		}
 		scope := a.scope(request.Platform, request.SelfID, channelID)
 		timestamp := cached.CreateAt
