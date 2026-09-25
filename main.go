@@ -28,7 +28,55 @@ import (
 func main() {
 	fastStart := flag.Bool("faststart", false, "fast startup")
 	debug := flag.Bool("debug", false, "debug mode")
+	configPath := flag.String("config", "config.yml", "配置文件路径")
+	initialize := flag.Bool("init", false, "交互式初始化配置，不覆盖已有文件")
+	updateConfig := flag.Bool("update-config", false, "备份并显式迁移配置")
+	legacyMessages := flag.String("migrate-messages", "", "旧消息数据库的停机备份目录，仅显式指定时迁移")
+	migrationTarget := flag.String("migration-target", database.DefaultMessageStorePath, "迁移后的新消息数据库目录")
+	migrationAppID := flag.String("migration-app-id", "", "显式确认旧消息库所属的 AppID")
+	migrationSelfID := flag.String("migration-self-id", "", "显式确认旧消息库所属的新版 self_id")
 	flag.Parse()
+
+	modes := 0
+	for _, enabled := range []bool{*initialize, *updateConfig, *legacyMessages != ""} {
+		if enabled {
+			modes++
+		}
+	}
+	if modes > 1 {
+		fmt.Fprintln(os.Stderr, "初始化配置、迁移配置和迁移消息不能同时执行")
+		os.Exit(2)
+	}
+	if *legacyMessages != "" {
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer cancel()
+		result, err := database.MigrateMessages(ctx, *legacyMessages, *migrationTarget, *migrationAppID, *migrationSelfID)
+		fmt.Printf("消息迁移结果：读取 %d 条，导入 %d 条，已存在 %d 条，无法迁移 %d 条\n", result.Read, result.Imported, result.Skipped, result.Failed)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if *initialize {
+		if err := config.InitializeConfig(*configPath); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		fmt.Printf("配置已保存至 %s\n", *configPath)
+		return
+	}
+	if *updateConfig {
+		backup, err := config.UpdateConfig(*configPath)
+		if backup != "" {
+			fmt.Printf("原配置备份: %s\n", backup)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	if !*fastStart {
 		sys.InitBase()
@@ -39,10 +87,10 @@ func main() {
 	log.PrintlnCyan(versionString)
 	fmt.Print("\n==========================================================\n\n")
 
-	conf, err := config.LoadConfig("config.yml")
+	conf, err := config.LoadConfig(*configPath)
 	if err != nil {
 		fmt.Printf("%s load config failed: %v\n", log.FailMark, log.Red(fmt.Sprint(err)))
-		os.Exit(0)
+		os.Exit(1)
 		return
 	}
 
