@@ -22,7 +22,7 @@ func InitBase() {
 		if RunningByDoubleClick() {
 			err := NoMoreDoubleClick()
 			if err != nil {
-				log.Errorf("遇到错误: %v", err)
+				log.Errorf("生成启动脚本时出错: %v", err)
 				os.Exit(1)
 			}
 			os.Exit(0)

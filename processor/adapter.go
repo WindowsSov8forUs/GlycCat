@@ -26,6 +26,7 @@ type Adapter struct {
 	routes         map[string]server.RouteCall[any, any]
 	events         chan *event.Event
 	eventOnce      sync.Once
+	logStates      map[string]login.LoginStatus // 仅由唯一 Publisher 维护，用于合并两平台的上线提示。
 	closed         context.Context
 	cancel         context.CancelFunc
 }
@@ -111,8 +112,9 @@ func (a *Adapter) Publisher(ctx context.Context) <-chan *event.Event {
 					if evt == nil {
 						continue
 					}
+					a.logEvent(evt)
 					if err := a.cacheEvent(evt); err != nil {
-						log.Errorf("缓存接收事件失败: %v", err)
+						log.Errorf("保存接收消息或会话状态时出错: %v", err)
 					}
 					copied := *evt
 					copied.Login = a.withCacheFeatures(evt.Login)
@@ -192,7 +194,7 @@ func (a *Adapter) registerCacheRoutes() {
 		if err == nil && responseSucceeded(result) && a.store != nil && request.Platform == "qq" {
 			if ch, ok := result.(*channel.Channel); ok && ch != nil {
 				if cacheErr := a.store.Observe(a.scope(request.Platform, request.SelfID, ch.Id), ch, nil, 0, true); cacheErr != nil {
-					log.Errorf("缓存已创建私聊频道失败: %v", cacheErr)
+					log.Errorf("保存私聊频道信息时出错: %v", cacheErr)
 				}
 			}
 		}
@@ -207,6 +209,7 @@ func (a *Adapter) registerCacheRoutes() {
 			}
 			return nil, server.BadRequest(err.Error())
 		}
+		displayContent := content
 		request.Params.Content = content
 		content, err = a.prepareMessageMedia(request)
 		if err != nil {
@@ -214,11 +217,13 @@ func (a *Adapter) registerCacheRoutes() {
 		}
 		request.Params.Content = content
 		// 全部预处理完成后才发送；发送分段、回复序号和部分成功响应仍由 SDK 负责。
+		logSendAttempt(request, displayContent)
 		result, err := create(forwardRequest(request))
+		logSendResult(request, result, err)
 		if err == nil && a.store != nil && request.Platform == "qq" {
 			if cacheErr := a.cacheSent(request, result); cacheErr != nil {
 				// QQ 已经完成的发送不能因为缓存失败而被当作未发送。
-				log.Errorf("缓存已发送消息失败: %v", cacheErr)
+				log.Errorf("保存已发送消息时出错: %v", cacheErr)
 			}
 		}
 		return result, err
@@ -229,7 +234,7 @@ func (a *Adapter) registerCacheRoutes() {
 		if err == nil && responseSucceeded(result) && a.store != nil && request.Platform == "qq" {
 			cacheErr := a.store.Delete(a.scope(request.Platform, request.SelfID, request.Params.ChannelID), request.Params.MessageID)
 			if cacheErr != nil && !errors.Is(cacheErr, database.ErrNotFound) {
-				log.Errorf("删除已撤回消息缓存失败: %v", cacheErr)
+				log.Errorf("删除已撤回消息的缓存时出错: %v", cacheErr)
 			}
 		}
 		return result, err
@@ -268,7 +273,7 @@ func cacheError(err error) error {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return err
 	default:
-		log.Errorf("读取消息缓存失败: %v", err)
+		log.Errorf("读取消息缓存时出错: %v", err)
 		return server.NewActionError(500, "读取本机缓存失败", err)
 	}
 }

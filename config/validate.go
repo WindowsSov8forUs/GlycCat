@@ -80,7 +80,7 @@ func (conf *Config) NormalizeAndValidate() error {
 	if conf.Account.WebSocket.Enable {
 		ws := &conf.Account.WebSocket
 		if ws.Shards != 0 {
-			log.Warn("旧 websocket.shards 配置不再表示单个分片，将使用自动分片；手动部署请使用 shard_id 和 shard_count")
+			log.Warn("检测到旧的 WebSocket 分片配置，将使用自动分片。手动指定分片时，请同时配置 shard_id 和 shard_count。")
 			ws.Shards = 0
 		}
 		if (ws.ShardID == nil) != (ws.ShardCount == 0) {

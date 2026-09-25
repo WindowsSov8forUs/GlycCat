@@ -136,7 +136,7 @@ func DefaultConfigTemplate() string {
 func DumpConfig(conf *Config) string {
 	data, err := marshalConfig(conf)
 	if err != nil {
-		log.Errorf("导出配置失败: %v", err)
+		log.Errorf("导出配置时出错: %v", err)
 		return ""
 	}
 	return string(data)
@@ -152,7 +152,7 @@ func marshalConfig(conf *Config) ([]byte, error) {
 		return nil, err
 	}
 	if err := yaml.Unmarshal([]byte(ConfigTemplate), &template); err != nil {
-		return nil, fmt.Errorf("解析配置模板失败: %w", err)
+		return nil, fmt.Errorf("解析配置模板时出错: %w", err)
 	}
 	if len(template.Content) > 0 {
 		copyConfigComments(&values, template.Content[0])
