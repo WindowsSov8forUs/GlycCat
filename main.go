@@ -62,6 +62,12 @@ func main() {
 		return
 	}
 
+	if err := log.Start(); err != nil {
+		fmt.Printf("start log failed: %v\n", err)
+		os.Exit(1)
+	}
+	defer log.Close()
+
 	fileserver.StartFileServer(conf)
 
 	if conf.Database.MessageDatabase.Enable {
