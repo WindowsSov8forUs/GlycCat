@@ -1,16 +1,23 @@
 package main
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/WindowsSov8forUs/glyccat/config"
+	"github.com/WindowsSov8forUs/glyccat/database"
 )
 
-func TestSDKRuntimeDoesNotRequireLegacyToken(t *testing.T) {
+func TestNewRuntimeAcceptsMessageStore(t *testing.T) {
 	conf := config.DefaultConfig()
 	conf.Account.AppID = 123
 	conf.Account.AppSecret = "test-secret"
-	bundle, err := newRuntime(conf, nil)
+	store, err := database.OpenMessageStore(filepath.Join(t.TempDir(), "messages"), 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	bundle, err := newRuntime(conf, store)
 	if err != nil {
 		t.Fatal(err)
 	}
