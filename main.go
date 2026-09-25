@@ -4,9 +4,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -141,6 +143,9 @@ type runtimeBundle struct {
 }
 
 func newRuntime(conf *config.Config) (*runtimeBundle, error) {
+	if err := conf.NormalizeAndValidate(); err != nil {
+		return nil, err
+	}
 	var logger = Logger{}
 
 	useWebSocket := conf.Account.WebSocket.Enable && !conf.Account.WebHook.Enable
@@ -210,25 +215,10 @@ func buildQQWebhookServer(
 		return nil
 	}
 
-	webhookHost := strings.TrimSpace(conf.Account.WebHook.Host)
-	if webhookHost == "" {
-		webhookHost = strings.TrimSpace(conf.Satori.Server.Host)
-	}
+	// 调用方已统一规范化地址；只有完全等价的端点才共享监听。
+	webhookHost := conf.Account.WebHook.Host
 	webhookPort := conf.Account.WebHook.Port
-	if webhookPort == 0 {
-		webhookPort = conf.Satori.Server.Port
-	}
-
-	satoriHost := strings.TrimSpace(conf.Satori.Server.Host)
-	if satoriHost == "" {
-		satoriHost = "127.0.0.1"
-	}
-	satoriPort := conf.Satori.Server.Port
-	if satoriPort == 0 {
-		satoriPort = 5500
-	}
-
-	if isSameListenEndpoint(webhookHost, webhookPort, satoriHost, satoriPort) {
+	if isSameListenEndpoint(webhookHost, webhookPort, conf.Satori.Server.Host, conf.Satori.Server.Port) {
 		return nil
 	}
 
@@ -237,34 +227,20 @@ func buildQQWebhookServer(
 	registrar.RegisterRootRoutes(router)
 
 	return &http.Server{
-		Addr:    fmt.Sprintf("%s:%d", webhookHost, webhookPort),
-		Handler: router,
+		Addr:              net.JoinHostPort(webhookHost, strconv.Itoa(int(webhookPort))),
+		Handler:           router,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 }
 
 func isSameListenEndpoint(hostA string, portA uint16, hostB string, portB uint16) bool {
-	if portA != portB {
-		return false
-	}
-	normalize := func(host string) string {
-		host = strings.TrimSpace(host)
-		if host == "" || host == "::" {
-			return "0.0.0.0"
-		}
-		return host
-	}
-	a := normalize(hostA)
-	b := normalize(hostB)
-	if a == b {
-		return true
-	}
-	return a == "0.0.0.0" || b == "0.0.0.0"
+	return portA == portB && strings.EqualFold(hostA, hostB)
 }
 
 func responseHeaderMiddleware(satoriVersion string, serverHeader string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-			w.Header().Set("Date", time.Now().Format(time.RFC1123))
 			if serverHeader != "" {
 				w.Header().Set("Server", serverHeader)
 			}
