@@ -3,6 +3,7 @@ module github.com/WindowsSov8forUs/glyccat
 go 1.25.4
 
 require (
+	github.com/WindowsSov8forUs/botgo-plus v0.2.2
 	github.com/go-chi/chi/v5 v5.2.3
 	github.com/satori-protocol-go/satori-go v1.4.2
 	github.com/sirupsen/logrus v1.9.3
@@ -12,7 +13,6 @@ require (
 
 require (
 	github.com/BurntSushi/toml v1.6.0 // indirect
-	github.com/WindowsSov8forUs/botgo-plus v0.2.2 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
 	github.com/kr/text v0.2.0 // indirect
