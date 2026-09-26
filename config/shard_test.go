@@ -21,6 +21,7 @@ func TestManualShardRequiresValidPair(t *testing.T) {
 			conf.Account.AppSecret = "test-secret"
 			conf.Account.WebHook.Enable = false
 			conf.Account.WebSocket.Enable = true
+			conf.Account.WebSocket.Intents = []string{"GROUP_AND_C2C_EVENT"}
 			conf.Account.WebSocket.ShardID = tc.id
 			conf.Account.WebSocket.ShardCount = tc.count
 			err := conf.NormalizeAndValidate()

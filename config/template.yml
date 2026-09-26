@@ -1,34 +1,44 @@
 # 配置文件
 # 请根据注释进行配置，未填写的可选项使用默认值
+config_version: 1 # 配置格式版本，由程序管理；不要手动删除或降低版本
 
 # 日志等级
 # 0：关闭；1：致命错误；2：错误；3：警告；4：信息；5：调试；6/7：所有日志
 log_level: 4
 
 account: # QQ 机器人配置
-  bot_id: 0 # 兼容旧配置；实际账号身份由 QQ 开放平台返回
   app_id: 0 # 机器人 ID
-  token: "" # 兼容旧配置；新版 SDK 不再使用此字段
   app_secret: "" # 机器人密钥
   sandbox: false # 是否使用沙箱环境
 
   websocket:
     enable: false # 是否启用 WebSocket，与 WebHook 二选一
-    shards: 0 # 兼容旧分片数量；默认由 SDK 自动启动完整分片集合
+    # 不填写 shard_id 和 shard_count 时，由 SDK 自动启动完整分片集合
     # 手动分片时同时填写 shard_id 和 shard_count，例如 shard_id: 0、shard_count: 2
-    intents: [] # 留空时使用 SDK 默认订阅；填写时保留完整订阅名称
+    # 单个手动实例只运行指定分片，必须由其他实例覆盖剩余分片，并协调同账号的登录频率
+    # 去掉行首 # 启用订阅，添加 # 取消订阅；WebSocket 启用时至少选择一项
+    # 仅选择需要且已获 QQ 平台授权的事件，不自动叠加或删除订阅
+    intents:
+      # - "GUILDS"                           # 频道及子频道创建、更新、删除
+      # - "GUILD_MEMBERS"                    # 频道成员加入、更新、退出
+      # - "GUILD_MESSAGES"                   # 频道全部消息及撤回，仅私域机器人可用
+      # - "GUILD_MESSAGE_REACTIONS"          # 频道消息表态添加、移除
+      # - "DIRECT_MESSAGE"                   # 频道私信及撤回，不是普通 QQ 单聊
+      # - "OPEN_FORUM_EVENT"                 # 开放论坛主题、帖子和回复事件
+      # - "AUDIO_OR_LIVE_CHANNEL_MEMBER"     # 音视频、直播子频道成员进出
+      # - "GROUP_MEMBER_EVENT"               # QQ 群成员加入、退出；入群申请另需群管理员
+      # - "GROUP_AND_C2C_EVENT"              # QQ 群聊、单聊及相关事件；全量群消息需开启接收所有消息
+      # - "INTERACTION"                      # 按钮、快捷菜单、消息反馈及授权等互动事件
+      # - "MESSAGE_AUDIT"                    # 消息审核通过、拒绝
+      # - "FORUMS_EVENT"                     # 私域论坛主题、帖子、回复及审核事件
+      # - "AUDIO_ACTION"                     # 音频播放开始、结束及上下麦事件
+      # - "PUBLIC_GUILD_MESSAGES"            # 频道 @ 机器人消息及相关撤回
 
   webhook:
     enable: true # 是否启用 QQ 开放平台回调
     host: "" # 留空时沿用 Satori 监听地址
     port: 0 # 0 表示沿用 Satori 端口；这里监听 HTTP，HTTPS 由反向代理提供
     path: "/qqbot" # QQ 开放平台回调路径
-
-# 兼容旧文件服务器配置，普通媒体上传使用 SDK，不需要公网文件服务器
-file_server:
-  enable: false
-  external_url: ""
-  ttl: 0 # 旧文件有效期，单位秒，0 表示不自动过期
 
 database:
   message_database:

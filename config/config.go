@@ -18,21 +18,20 @@ var (
 	mutex    sync.Mutex
 )
 
+const currentConfigVersion = 1
+
 // Config 配置
 type Config struct {
-	LogLevel   log.LogLevel `yaml:"log_level"`   // 日志等级
-	DebugMode  bool         `yaml:"debug_mode"`  // 兼容旧配置
-	Account    Account      `yaml:"account"`     // QQ 机器人账号配置
-	FileServer FileServer   `yaml:"file_server"` // 本地文件服务器配置
-	Database   Database     `yaml:"database"`    // 数据库配置
-	Satori     Satori       `yaml:"satori"`      // Satori 配置
+	Version  uint32       `yaml:"config_version"` // 配置格式版本，与 Satori 协议版本无关
+	LogLevel log.LogLevel `yaml:"log_level"`      // 日志等级
+	Account  Account      `yaml:"account"`        // QQ 机器人账号配置
+	Database Database     `yaml:"database"`       // 数据库配置
+	Satori   Satori       `yaml:"satori"`         // Satori 配置
 }
 
 // Account QQ 机器人账号配置
 type Account struct {
-	BotID     uint64    `yaml:"bot_id"`     // 兼容旧配置，运行时身份以 SDK 返回的 user.id 为准
 	AppID     uint64    `yaml:"app_id"`     // 机器人 ID
-	Token     string    `yaml:"token"`      // 兼容旧配置，不参与新版 QQ 鉴权
 	AppSecret string    `yaml:"app_secret"` // 机器人密钥
 	Sandbox   bool      `yaml:"sandbox"`    // 是否使用沙箱环境
 	WebSocket WebSocket `yaml:"websocket"`  // WebSocket 配置
@@ -42,7 +41,6 @@ type Account struct {
 // WebSocket QQ 机器人 WebSocket 配置
 type WebSocket struct {
 	Enable     bool     `yaml:"enable"`                // 是否启用 WebSocket
-	Shards     uint32   `yaml:"shards"`                // 兼容旧分片配置
 	ShardID    *uint32  `yaml:"shard_id,omitempty"`    // 手动分片编号
 	ShardCount uint32   `yaml:"shard_count,omitempty"` // 手动分片总数
 	Intents    []string `yaml:"intents"`               // 事件订阅
@@ -54,13 +52,6 @@ type QQWebHook struct {
 	Host   string `yaml:"host"`   // WebHook 地址
 	Port   uint16 `yaml:"port"`   // WebHook 端口
 	Path   string `yaml:"path"`   // WebHook 路径
-}
-
-// FileServer 仅保留旧配置的读取兼容，不启动旧文件服务或清理旧数据
-type FileServer struct {
-	Enable      bool   `yaml:"enable"`       // 是否启用对外本地文件服务器
-	ExternalURL string `yaml:"external_url"` // 本地文件服务器公网地址 {{ .Host }}:{{ .Port }}
-	TTL         uint64 `yaml:"ttl"`          // 文件存储时间，单位秒
 }
 
 // Database 数据库配置
@@ -107,6 +98,7 @@ func GetSatoriToken() string {
 // DefaultConfig 获取默认配置
 func DefaultConfig() *Config {
 	return &Config{
+		Version:  currentConfigVersion,
 		LogLevel: log.INFO,
 		Account:  Account{WebHook: QQWebHook{Enable: true, Path: "/qqbot"}},
 		Database: Database{
@@ -166,7 +158,7 @@ func marshalConfig(conf *Config) ([]byte, error) {
 	if err := encoder.Close(); err != nil {
 		return nil, err
 	}
-	return buffer.Bytes(), nil
+	return formatIntentList(buffer.Bytes(), conf.Account.WebSocket.Intents)
 }
 
 // copyConfigComments 只复制注释，不改变原始配置值
@@ -259,21 +251,8 @@ func promptAccountWebSocketConfig(conf *Config) error {
 			Name: "intents",
 			Prompt: &survey.MultiSelect{
 				Message: "请选择需要订阅的事件类型:",
-				Options: []string{
-					"GUILDS",                  // 频道事件
-					"GUILD_MEMBERS",           // 成员事件
-					"GUILD_MESSAGES",          // 私域频道消息事件
-					"GUILD_MESSAGE_REACTIONS", // 私域频道消息反应事件
-					"DIRECT_MESSAGE",          // 频道私信事件
-					"GROUP_AND_C2C_EVENT",     // 单聊/群聊消息事件
-					"INTERACTION",             // 互动事件
-					"MESSAGE_AUDIT",           // 消息审核事件
-					"FORUMS_EVENT",            // 私域论坛事件
-					"AUDIO_ACTION",            // 音频机器人事件
-					"PUBLIC_GUILD_MESSAGES",   // 公域频道消息事件
-				},
-				Default: []string{"GUILDS", "GUILD_MEMBERS", "PUBLIC_GUILD_MESSAGES", "GROUP_AND_C2C_EVENT", "INTERACTION", "MESSAGE_AUDIT"},
-				Help:    "使用空格键选择/取消选择，回车键确认",
+				Options: intentNames(),
+				Help:    "只选择需要且已获 QQ 平台授权的事件；使用空格键选择/取消选择，回车键确认",
 			},
 			Validate: func(val interface{}) error {
 				if selected, ok := val.([]string); ok {
@@ -294,7 +273,6 @@ func promptAccountWebSocketConfig(conf *Config) error {
 		return err
 	}
 
-	conf.Account.WebSocket.Shards = 0
 	conf.Account.WebSocket.ShardID = nil
 	conf.Account.WebSocket.ShardCount = 0
 	conf.Account.WebSocket.Intents = answer.Intents

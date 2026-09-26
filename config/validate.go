@@ -10,10 +10,23 @@ import (
 	"github.com/satori-protocol-go/satori-go/pkg/satori/protocol"
 )
 
+// validateStoredConfig 校验副本，避免迁移把空地址、端口 0 等跟随默认值的设置写死。
+func validateStoredConfig(conf *Config) error {
+	if conf == nil {
+		return fmt.Errorf("配置不能为空")
+	}
+	value := *conf
+	value.Account.WebSocket.Intents = append([]string(nil), conf.Account.WebSocket.Intents...)
+	return value.NormalizeAndValidate()
+}
+
 // NormalizeAndValidate 统一文件和交互配置的默认值与校验规则
 func (conf *Config) NormalizeAndValidate() error {
 	if conf == nil {
 		return fmt.Errorf("配置不能为空")
+	}
+	if conf.Version != currentConfigVersion {
+		return fmt.Errorf("不支持的配置格式版本 %d，请使用匹配的 GlycCat 版本", conf.Version)
 	}
 	if conf.LogLevel < log.OFF || conf.LogLevel > log.ALL {
 		return fmt.Errorf("日志等级必须在 0 到 7 之间")
@@ -79,20 +92,19 @@ func (conf *Config) NormalizeAndValidate() error {
 	}
 	if conf.Account.WebSocket.Enable {
 		ws := &conf.Account.WebSocket
-		if ws.Shards != 0 {
-			log.Warn("检测到旧的 WebSocket 分片配置，将使用自动分片。手动指定分片时，请同时配置 shard_id 和 shard_count。")
-			ws.Shards = 0
-		}
 		if (ws.ShardID == nil) != (ws.ShardCount == 0) {
 			return fmt.Errorf("手动分片必须同时填写 shard_id 和大于 0 的 shard_count")
 		}
 		if ws.ShardID != nil && *ws.ShardID >= ws.ShardCount {
 			return fmt.Errorf("shard_id 必须小于 shard_count")
 		}
+		if len(ws.Intents) == 0 {
+			return fmt.Errorf("启用 WebSocket 时，必须明确填写所需且已获授权的 intents，不能省略或使用空列表")
+		}
 		for i, value := range ws.Intents {
-			name := strings.ToUpper(strings.TrimSpace(value))
-			if !knownIntents[name] {
-				return fmt.Errorf("存在不支持的 WebSocket 事件订阅，请核对 intents 名称")
+			name, ok := canonicalIntentName(value)
+			if !ok {
+				return fmt.Errorf("存在不支持的 WebSocket 事件订阅 %q，请核对 intents 名称", value)
 			}
 			ws.Intents[i] = name
 		}
@@ -142,15 +154,4 @@ func listenHostsOverlap(a, b string) bool {
 		return host == "localhost" || (ip != nil && ip.IsLoopback())
 	}
 	return isLoopback(a) && isLoopback(b) && (a == "localhost" || b == "localhost")
-}
-
-var knownIntents = map[string]bool{
-	"GUILDS": true, "GUILD_MEMBERS": true, "GUILD_MESSAGES": true,
-	"GUILD_MESSAGE_REACTIONS": true, "GUILD_MESSAGE_REACTION": true,
-	"DIRECT_MESSAGE": true, "DIRECT_MESSAGES": true,
-	"GROUP_AND_C2C_EVENT": true, "C2C_GROUP_AT_MESSAGES": true, "USER_MESSAGES": true,
-	"INTERACTION": true, "MESSAGE_AUDIT": true,
-	"FORUM_EVENT": true, "FORUMS_EVENT": true, "OPEN_FORUM_EVENT": true, "OPEN_FORUMS_EVENT": true,
-	"AUDIO_ACTION": true, "AUDIO_LIVE_MEMBER": true, "AUDIO_OR_LIVE_CHANNEL_MEMBER": true,
-	"AT_MESSAGES": true, "PUBLIC_GUILD_MESSAGES": true,
 }
