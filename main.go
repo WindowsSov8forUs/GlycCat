@@ -21,28 +21,11 @@ import (
 	"github.com/WindowsSov8forUs/glyccat/sys"
 	"github.com/WindowsSov8forUs/glyccat/version"
 
+	"github.com/WindowsSov8forUs/botgo-plus"
 	"github.com/go-chi/chi/v5"
 	"github.com/satori-protocol-go/satori-go/pkg/satori/adapter/qq"
 	"github.com/satori-protocol-go/satori-go/pkg/satori/server"
 )
-
-type Logger struct{}
-
-func (Logger) Log(_ context.Context, level server.LogLevel, v ...any) {
-	if len(v) == 0 {
-		v = []any{"收到 Satori 服务事件。"}
-	}
-	lvl := log.INFO
-	switch level {
-	case server.LogLevelDebug:
-		lvl = log.DEBUG
-	case server.LogLevelWarn:
-		lvl = log.WARN
-	case server.LogLevelError:
-		lvl = log.ERROR
-	}
-	log.GetLogger().Println(lvl, v...)
-}
 
 func main() {
 	err := run()
@@ -121,8 +104,8 @@ func run() (runErr error) {
 	if err := log.Start(); err != nil {
 		return err
 	}
-	// 原生 SDK 使用进程级日志入口，仅在主程序启动时注册一次。
-	qq.RegisterSDKLogger(Logger{})
+	// 原生 SDK 使用进程级日志入口，由应用在创建客户端前直接注册一次。
+	botgo.SetLogger(Logger{source: "botgo-plus"})
 	if conf.FileServer.Enable {
 		log.Warn("旧文件服务器已停用，请通过 upload.create 上传媒体。原有文件数据不会自动删除。")
 	}
@@ -218,7 +201,7 @@ func newRuntime(conf *config.Config, messageStore *database.MessageStore) (bundl
 	if err := conf.NormalizeAndValidate(); err != nil {
 		return nil, err
 	}
-	var logger = Logger{}
+	var logger = Logger{source: "satori-go"}
 	adapterCfg := qq.Config{
 		AppID:         conf.Account.AppID,
 		Secret:        conf.Account.AppSecret,

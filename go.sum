@@ -4,8 +4,8 @@ github.com/BurntSushi/toml v1.6.0 h1:dRaEfpa2VI55EwlIW72hMRHdWouJeRF7TPYhI+AUQjk
 github.com/BurntSushi/toml v1.6.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
 github.com/Netflix/go-expect v0.0.0-20220104043353-73e0943537d2 h1:+vx7roKuyA63nhn5WAunQHLTznkw5W8b1Xc0dNjp83s=
 github.com/Netflix/go-expect v0.0.0-20220104043353-73e0943537d2/go.mod h1:HBCaDeC1lPdgDeDbhX8XFpy1jqjK0IBG8W5K+xYqA0w=
-github.com/WindowsSov8forUs/botgo-plus v0.2.2 h1:O0cRPTETPwIHdHrAxhVVlY/brgaArKEyS1QXNAUfHWE=
-github.com/WindowsSov8forUs/botgo-plus v0.2.2/go.mod h1:qIB1wFPCq1kwflSz3s/rTTYPIxa84NTIqH4BE5WWbSs=
+github.com/WindowsSov8forUs/botgo-plus v0.2.3 h1:PTEZu/K4yaxey/J6hBl4piwL/mqTJBREXlVP6YV4mkE=
+github.com/WindowsSov8forUs/botgo-plus v0.2.3/go.mod h1:qIB1wFPCq1kwflSz3s/rTTYPIxa84NTIqH4BE5WWbSs=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
 github.com/creack/pty v1.1.17 h1:QeVUsEDNrLBW4tMgZHvxy18sKtr6VI492kBhUfhDJNI=
 github.com/creack/pty v1.1.17/go.mod h1:MOBLtS5ELjhRRrroQr9kyvTxUAFNvYEK993ew/Vr4O4=
