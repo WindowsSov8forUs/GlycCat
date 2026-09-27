@@ -12,6 +12,7 @@ func TestNewRuntimeAcceptsManualWebSocketShard(t *testing.T) {
 	conf.Account.AppSecret = "test-secret"
 	conf.Account.WebHook.Enable = false
 	conf.Account.WebSocket.Enable = true
+	conf.Account.WebSocket.Intents = []string{"GROUP_AND_C2C_EVENT"}
 	shardID := uint32(0)
 	conf.Account.WebSocket.ShardID = &shardID
 	conf.Account.WebSocket.ShardCount = 2

@@ -8,12 +8,13 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/WindowsSov8forUs/glyccat/log"
 	"gopkg.in/yaml.v3"
 )
 
 const maxConfigBytes = 1024 * 1024
 
-// LoadConfig 只读加载配置，不在普通启动时进入交互或改写文件
+// LoadConfig 自动迁移旧格式并保存成功后加载；新格式只读，不进入交互。
 func LoadConfig(path string) (*Config, error) {
 	data, err := readConfigFile(path)
 	if err != nil {
@@ -22,8 +23,30 @@ func LoadConfig(path string) (*Config, error) {
 		}
 		return nil, err
 	}
-	conf, err := decodeConfig(data)
+	conf, migrated, err := prepareConfig(data)
 	if err != nil {
+		return nil, err
+	}
+	if migrated {
+		converted, err := marshalConfig(conf)
+		if err != nil {
+			return nil, err
+		}
+		backup, err := replaceConfigFile(path, converted, data)
+		if err != nil {
+			if backup != "" {
+				return nil, fmt.Errorf("自动迁移配置失败，原文件已备份为 %s: %w", backup, err)
+			}
+			return nil, fmt.Errorf("自动迁移配置失败: %w", err)
+		}
+		if conf.LogLevel >= log.WARN {
+			log.Warnf("配置文件已自动升级为格式 %d，原文件已备份为: %s", currentConfigVersion, backup)
+			if conf.Account.WebSocket.Enable {
+				log.Warn("WebSocket 订阅已明确写入配置，请确认 QQ 平台已授予相应权限。")
+			}
+		}
+	}
+	if err := conf.NormalizeAndValidate(); err != nil {
 		return nil, err
 	}
 	mutex.Lock()
@@ -43,7 +66,7 @@ func InitializeConfig(path string) error {
 	if err := SetConfigByInput(conf); err != nil {
 		return fmt.Errorf("初始化配置已中止: %w", err)
 	}
-	if err := conf.NormalizeAndValidate(); err != nil {
+	if err := validateStoredConfig(conf); err != nil {
 		return err
 	}
 	data, err := marshalConfig(conf)
@@ -53,13 +76,13 @@ func InitializeConfig(path string) error {
 	return writeConfigFile(path, data, nil)
 }
 
-// UpdateConfig 显式迁移配置，保留原文件的独立备份
+// UpdateConfig 显式整理配置，复用自动迁移入口并保留修改前的独立备份。
 func UpdateConfig(path string) (string, error) {
 	original, err := readConfigFile(path)
 	if err != nil {
 		return "", err
 	}
-	conf, err := decodeConfig(original)
+	conf, _, err := prepareConfig(original)
 	if err != nil {
 		return "", err
 	}
@@ -67,12 +90,30 @@ func UpdateConfig(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return replaceConfigFile(path, data, original)
+}
+
+// replaceConfigFile 先校验并备份，写回失败时保留备份且不以旧规则继续启动。
+func replaceConfigFile(path string, data, original []byte) (string, error) {
+	if bytes.Equal(data, original) {
+		return "", nil
+	}
+	if _, err := decodeConfig(data); err != nil {
+		return "", fmt.Errorf("待保存配置无效: %w", err)
+	}
 	info, err := os.Lstat(path)
 	if err != nil {
 		return "", err
 	}
 	if !info.Mode().IsRegular() {
 		return "", fmt.Errorf("只允许迁移普通配置文件")
+	}
+	current, err := readConfigFile(path)
+	if err != nil {
+		return "", err
+	}
+	if !bytes.Equal(current, original) {
+		return "", fmt.Errorf("原配置文件已被其他程序修改，取消迁移")
 	}
 	backup, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".backup-*")
 	if err != nil {
@@ -108,47 +149,22 @@ func readConfigFile(path string) ([]byte, error) {
 	return data, nil
 }
 
-// decodeConfig 按字段出现性覆盖默认值，拒绝未知字段及多个 YAML 文档
+// decodeConfig 只解析当前配置格式，旧格式必须先迁移，未知字段直接报错。
 func decodeConfig(data []byte) (*Config, error) {
-	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, fmt.Errorf("配置文件为空")
+	if _, err := configDocument(data); err != nil {
+		return nil, err
 	}
 	conf := DefaultConfig()
+	conf.Version = 0 // 配置文件必须明确声明格式版本，不使用构造器默认值补齐。
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
 	if err := decoder.Decode(conf); err != nil {
 		return nil, fmt.Errorf("解析配置文件时出错: %w", err)
 	}
-	var extra any
-	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		return nil, fmt.Errorf("配置文件只能包含一个 YAML 文档")
-	}
-	var document yaml.Node
-	if err := yaml.Unmarshal(data, &document); err != nil || len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("配置必须为 YAML 映射")
-	}
-	if conf.Account.WebSocket.Enable && !hasConfigField(document.Content[0], "account", "webhook", "enable") {
-		conf.Account.WebHook.Enable = false
-	}
-	if err := conf.NormalizeAndValidate(); err != nil {
+	if err := validateStoredConfig(conf); err != nil {
 		return nil, err
 	}
 	return conf, nil
-}
-
-func hasConfigField(node *yaml.Node, keys ...string) bool {
-	if len(keys) == 0 {
-		return true
-	}
-	if node.Kind != yaml.MappingNode {
-		return false
-	}
-	for i := 0; i+1 < len(node.Content); i += 2 {
-		if node.Content[i].Value == keys[0] {
-			return hasConfigField(node.Content[i+1], keys[1:]...)
-		}
-	}
-	return false
 }
 
 // writeConfigFile 使用同目录临时文件；初始化不覆盖，迁移不覆盖并发修改

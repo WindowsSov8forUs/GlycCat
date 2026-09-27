@@ -46,7 +46,7 @@ func run() (runErr error) {
 	debug := flag.Bool("debug", false, "启用调试日志")
 	configPath := flag.String("config", "config.yml", "配置文件路径")
 	initialize := flag.Bool("init", false, "交互式初始化配置，不覆盖已有文件")
-	updateConfig := flag.Bool("update-config", false, "备份并显式迁移配置")
+	updateConfig := flag.Bool("update-config", false, "备份并整理配置，普通启动自动迁移旧格式")
 	legacyMessages := flag.String("migrate-messages", "", "旧消息数据库的停机备份目录，仅显式指定时迁移")
 	migrationTarget := flag.String("migration-target", database.DefaultMessageStorePath, "迁移后的新消息数据库目录")
 	migrationAppID := flag.String("migration-app-id", "", "显式确认旧消息库所属的 AppID")
@@ -95,7 +95,7 @@ func run() (runErr error) {
 	if err != nil {
 		return err
 	}
-	log.SetSecrets(conf.Account.AppSecret, conf.Account.Token, conf.Satori.Token)
+	log.SetSecrets(conf.Account.AppSecret, conf.Satori.Token)
 	log.SetLogLevel(conf.LogLevel)
 	if *debug {
 		log.SetLogLevel(log.DEBUG)
@@ -106,9 +106,6 @@ func run() (runErr error) {
 	}
 	// 原生 SDK 使用进程级日志入口，由应用在创建客户端前直接注册一次。
 	botgo.SetLogger(Logger{source: "botgo-plus"})
-	if conf.FileServer.Enable {
-		log.Warn("旧文件服务器已停用，请通过 upload.create 上传媒体。原有文件数据不会自动删除。")
-	}
 	var messageStore *database.MessageStore
 	if conf.Database.MessageDatabase.Enable {
 		log.Info("正在启动消息数据库...")

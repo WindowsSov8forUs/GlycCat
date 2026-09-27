@@ -3,9 +3,9 @@ module github.com/WindowsSov8forUs/glyccat
 go 1.25.4
 
 require (
-	github.com/WindowsSov8forUs/botgo-plus v0.2.3
+	github.com/WindowsSov8forUs/botgo-plus v0.2.4
 	github.com/go-chi/chi/v5 v5.2.3
-	github.com/satori-protocol-go/satori-go v1.4.2
+	github.com/satori-protocol-go/satori-go v1.4.4
 	github.com/sirupsen/logrus v1.9.3
 	golang.org/x/image v0.16.0
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
