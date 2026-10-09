@@ -198,6 +198,10 @@ func newRuntime(conf *config.Config, messageStore *database.MessageStore) (bundl
 	if err := conf.NormalizeAndValidate(); err != nil {
 		return nil, err
 	}
+	// Windows 会话临时目录可能已被清理；MkdirTemp 不会补建父目录。
+	if err := os.MkdirAll(os.TempDir(), 0700); err != nil {
+		return nil, fmt.Errorf("准备系统临时目录失败: %w", err)
+	}
 	var logger = Logger{source: "satori-go"}
 	adapterCfg := qq.Config{
 		AppID:         conf.Account.AppID,
