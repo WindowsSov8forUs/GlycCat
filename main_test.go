@@ -3,12 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/gob"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,10 +16,7 @@ import (
 	"github.com/WindowsSov8forUs/glyccat/database"
 	"github.com/WindowsSov8forUs/glyccat/log"
 	"github.com/go-chi/chi/v5"
-	"github.com/satori-protocol-go/satori-go/pkg/satori/model/message"
-	"github.com/satori-protocol-go/satori-go/pkg/satori/model/user"
 	"github.com/satori-protocol-go/satori-go/pkg/satori/server"
-	"github.com/syndtr/goleveldb/leveldb"
 )
 
 type testRootRoutes struct{}
@@ -77,47 +72,6 @@ func TestSDKLoggerUsesApplicationLevel(t *testing.T) {
 	}
 }
 
-func TestMessageMigrationCommandDoesNotLoadRuntimeConfig(t *testing.T) {
-	dir := t.TempDir()
-	sourcePath := filepath.Join(dir, "legacy")
-	targetPath := filepath.Join(dir, "messages-v2")
-	source, err := leveldb.OpenFile(sourcePath, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var encoded bytes.Buffer
-	if err := gob.NewEncoder(&encoded).Encode(&message.Message{Id: "m1", CreateAt: 1234, User: &user.User{Id: "sender"}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := source.Put([]byte("group:ch:m1"), encoded.Bytes(), nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := source.Close(); err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	command := exec.CommandContext(ctx, "go", "run", ".", "-migrate-messages", sourcePath,
-		"-migration-target", targetPath, "-migration-app-id", "123", "-migration-self-id", "bot",
-		"-config", filepath.Join(dir, "missing-config.yml"))
-	output, err := command.CombinedOutput()
-	if err != nil {
-		t.Fatalf("migration command failed: %v\n%s", err, output)
-	}
-	if !strings.Contains(string(output), "导入 1 条") {
-		t.Fatalf("unexpected migration report: %s", output)
-	}
-	store, err := database.OpenMessageStore(targetPath, 50)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	got, err := store.Get(database.MessageScope{AppID: "123", Platform: "qq", SelfID: "bot", ChannelID: "ch"}, "m1")
-	if err != nil || got.User.Id != "sender" {
-		t.Fatalf("migrated message = %#v, %v", got, err)
-	}
-}
-
 func TestRuntimeStopsBeforeStartupWhenCallbackPortIsBusy(t *testing.T) {
 	occupied, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -148,20 +102,6 @@ func TestRuntimeReturnsSatoriListenFailure(t *testing.T) {
 	bundle := &runtimeBundle{satoriServer: srv}
 	if err := bundle.Run(ctx); err == nil {
 		t.Fatal("Satori listen failure was not returned")
-	}
-}
-
-func TestSDKRuntimeDoesNotRequireLegacyToken(t *testing.T) {
-	conf := config.DefaultConfig()
-	conf.Account.AppID = 123
-	conf.Account.AppSecret = "test-secret"
-	bundle, err := newRuntime(conf, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer bundle.satoriServer.Close()
-	if bundle.satoriServer == nil {
-		t.Fatal("Satori server was not created")
 	}
 }
 

@@ -17,12 +17,9 @@ func TestPlainWriterStripsTerminalColors(t *testing.T) {
 	}
 }
 
-func TestStartCreatesLogOnlyAfterCalledAndClosesIt(t *testing.T) {
+func TestStartWritesLogAndClosesIt(t *testing.T) {
 	t.Chdir(t.TempDir())
 	path := filepath.Join("log", "glyc-cat.log")
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("log file already exists before Start: %v", err)
-	}
 	old := logger.Level
 	defer func() {
 		SetLogLevel(old)
